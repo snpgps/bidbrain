@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Brain, Settings2, BarChart3, Database, ShieldCheck } from 'lucide-react';
+import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
 import { diagnoseBiddingPerformance } from '@/ai/flows/diagnose-bidding-performance';
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 import { Toaster } from '@/components/ui/toaster';
-import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 
 export default function BidBrainPage() {
   const [biddingData, setBiddingData] = useState<any[]>([]);
@@ -17,13 +18,14 @@ export default function BidBrainPage() {
   const [pDown, setPDown] = useState<number>(0.2);
   const [results, setResults] = useState<DiagnoseBiddingOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const [error, setError] = useState<string | null>(null);
 
   const handleRunAnalysis = async () => {
     if (biddingData.length === 0) return;
 
     setIsLoading(true);
     setResults([]);
+    setError(null);
 
     try {
       // Inject the manual p_up and p_down constants into each data row
@@ -37,20 +39,16 @@ export default function BidBrainPage() {
         analysisType,
         biddingData: enrichedData
       });
-      setResults(diagnosticResults);
       
-      if (diagnosticResults.length > 0) {
-        toast({
-          title: "Analysis Complete",
-          description: `Successfully analyzed ${diagnosticResults.length} unique catalogs.`,
-        });
+      if (!diagnosticResults || diagnosticResults.length === 0) {
+        throw new Error("The AI returned no analysis results. This might happen if the data for the selected period is insufficient or the AI could not confirm any issues.");
       }
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Analysis Error",
-        description: error.message || "An unexpected error occurred during diagnostics.",
-      });
+
+      setResults(diagnosticResults);
+    } catch (err: any) {
+      console.error("Diagnostic Run Error:", err);
+      // Surface the precise error message
+      setError(err.message || "An unexpected error occurred during AI diagnostics.");
     } finally {
       setIsLoading(false);
     }
@@ -98,15 +96,39 @@ export default function BidBrainPage() {
           </div>
         </section>
 
+        {/* Error Display */}
+        {error && (
+          <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 animate-in fade-in slide-in-from-top-2">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle className="font-bold">Analysis Failed</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <p className="text-sm opacity-90">{error}</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRunAnalysis}
+                className="bg-white hover:bg-destructive/10 border-destructive/30 text-destructive h-8 font-semibold"
+              >
+                Retry Analysis
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Upload & Controls */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-12">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <CsvUploader
-                onDataLoaded={setBiddingData}
+                onDataLoaded={(data) => {
+                  setBiddingData(data);
+                  setError(null);
+                  setResults([]);
+                }}
                 onClear={() => {
                   setBiddingData([]);
                   setResults([]);
+                  setError(null);
                 }}
               />
               <div className="space-y-4">
@@ -129,7 +151,7 @@ export default function BidBrainPage() {
                   <div className="space-y-1">
                     <p className="font-semibold text-foreground">Usage Guidelines</p>
                     <p>
-                      Ensure your CSV columns match the requirement: <code>ts</code> for timestamp and <code>roi_min</code> for stop-loss ROI. Constants for <code>p_up</code> and <code>p_down</code> are applied globally across all catalogs in the current analysis.
+                      The tool ignores the most recent (incomplete) day of data. Ensure <code>ts</code>, <code>roi_min</code>, and <code>catalog_bugdet_utilised</code> columns are present.
                     </p>
                   </div>
                 </div>
@@ -149,8 +171,8 @@ export default function BidBrainPage() {
                 </div>
               </div>
               <div className="text-center space-y-1">
-                <p className="font-bold text-xl font-headline">Processing AI Diagnostics</p>
-                <p className="text-sm text-muted-foreground">Cross-referencing ROI trends and budget utilization patterns...</p>
+                <p className="font-bold text-xl font-headline text-primary">AI Diagnostic in Progress</p>
+                <p className="text-sm text-muted-foreground">This may take up to 30 seconds depending on the data volume.</p>
               </div>
             </div>
           )}
@@ -159,7 +181,7 @@ export default function BidBrainPage() {
             <ResultsView results={results} analysisType={analysisType} />
           )}
 
-          {!isLoading && results.length === 0 && biddingData.length > 0 && (
+          {!isLoading && results.length === 0 && !error && biddingData.length > 0 && (
             <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20">
               <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
               <p className="text-muted-foreground font-medium text-lg">Ready to diagnose {biddingData.length} data points.</p>

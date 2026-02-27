@@ -40,8 +40,8 @@ CORE SYSTEM LOGIC:
    - error > 0: Under-delivering ROI (Need to decrease bids/alpha).
    - error < 0: Over-delivering ROI (Can increase bids/alpha).
 3. Correction Asymmetry (P-values):
-   - P_down (default 0.2): Used when error > 0 to react fast and protect ROI.
-   - P_up (default 0.1): Used when error < 0 to scale slowly and avoid ROI drops.
+   - P_down: Used when error > 0 to react fast and protect ROI.
+   - P_up: Used when error < 0 to scale slowly and avoid ROI drops.
 4. Alpha Update: alpha_t = alpha_t-1 * clip(1 + P * error, 0.5, 1.5).
 5. Reliability: Uses a rolling window N (3000 clicks) and updates every K (600 clicks).
 6. BU Behavior: Budget Utilization resets if the budget is changed during the day (check budget_change_flag).
@@ -89,76 +89,72 @@ Return output in JSON format:
 }`,
 });
 
-const diagnoseBiddingPerformanceFlow = ai.defineFlow(
-  {
-    name: 'diagnoseBiddingPerformanceFlow',
-    inputSchema: DiagnoseBiddingInputSchema,
-    outputSchema: z.array(DiagnoseBiddingOutputSchema),
-  },
-  async (input) => {
-    const {analysisType, biddingData} = input;
-
-    if (!biddingData || biddingData.length === 0) return [];
-
-    // 1. Group by catalog first
-    const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
-    for (const row of biddingData) {
-      if (!catalogDataMap.has(row.catalog_id)) {
-        catalogDataMap.set(row.catalog_id, []);
-      }
-      catalogDataMap.get(row.catalog_id)?.push(row);
-    }
-
-    const catalogIds = Array.from(catalogDataMap.keys());
-    const limitedCatalogIds = catalogIds.slice(0, 20); // Cap at 20 catalogs to avoid timeouts
-
-    // 2. Process each catalog's data (filter current day per catalog)
-    const pUp = biddingData[0]?.p_up ?? 0.1;
-    const pDown = biddingData[0]?.p_down ?? 0.2;
-
-    const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
-      const catalogRows = catalogDataMap.get(catalogId)!;
-      
-      // Determine the latest day in this catalog's data
-      const dates = catalogRows.map(row => row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0]).filter(Boolean);
-      const uniqueDates = [...new Set(dates)].sort();
-      
-      let filteredData = catalogRows;
-      if (uniqueDates.length > 1) {
-        const latestDate = uniqueDates[uniqueDates.length - 1];
-        filteredData = catalogRows.filter(row => {
-          const date = row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0];
-          return date !== latestDate;
-        });
-      }
-
-      if (filteredData.length === 0) return null;
-
-      // Take most recent 50 buckets to avoid context bloat and speed up inference
-      const recentData = filteredData.slice(-50);
-
-      try {
-        const {output} = await diagnoseBiddingPrompt({
-          analysisType,
-          catalogDataJson: JSON.stringify(recentData, null, 2),
-          catalog_id: catalogId,
-          pUp,
-          pDown,
-        });
-        return output ? { ...output, catalog_id: output.catalog_id || catalogId } : null;
-      } catch (error) {
-        console.error(`Error processing catalog ${catalogId}:`, error);
-        return null;
-      }
-    });
-
-    const results = await Promise.all(diagnosticPromises);
-    return results.filter((res): res is DiagnoseBiddingOutput => res !== null);
-  }
-);
-
 export async function diagnoseBiddingPerformance(
   input: DiagnoseBiddingInput
 ): Promise<DiagnoseBiddingOutput[]> {
-  return diagnoseBiddingPerformanceFlow(input);
+  const {analysisType, biddingData} = input;
+
+  if (!biddingData || biddingData.length === 0) {
+    throw new Error("No bidding data provided for analysis.");
+  }
+
+  // 1. Group by catalog first
+  const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
+  for (const row of biddingData) {
+    if (!catalogDataMap.has(row.catalog_id)) {
+      catalogDataMap.set(row.catalog_id, []);
+    }
+    catalogDataMap.get(row.catalog_id)?.push(row);
+  }
+
+  const catalogIds = Array.from(catalogDataMap.keys());
+  const limitedCatalogIds = catalogIds.slice(0, 20); // Cap at 20 catalogs to avoid timeouts
+
+  const pUp = biddingData[0]?.p_up ?? 0.1;
+  const pDown = biddingData[0]?.p_down ?? 0.2;
+
+  // 2. Process each catalog's data
+  const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
+    const catalogRows = catalogDataMap.get(catalogId)!;
+    
+    // Determine the latest day in this catalog's data to exclude it
+    const dates = catalogRows.map(row => row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0]).filter(Boolean);
+    const uniqueDates = [...new Set(dates)].sort();
+    
+    let filteredData = catalogRows;
+    if (uniqueDates.length > 1) {
+      const latestDate = uniqueDates[uniqueDates.length - 1];
+      filteredData = catalogRows.filter(row => {
+        const date = row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0];
+        return date !== latestDate;
+      });
+    }
+
+    if (filteredData.length === 0) return null;
+
+    // Take most recent 50 buckets to avoid context bloat and speed up inference
+    const recentData = filteredData.slice(-50);
+
+    try {
+      const {output} = await diagnoseBiddingPrompt({
+        analysisType,
+        catalogDataJson: JSON.stringify(recentData, null, 2),
+        catalog_id: catalogId,
+        pUp,
+        pDown,
+      });
+
+      if (!output) {
+        throw new Error(`The AI was unable to generate a valid analysis for catalog ${catalogId}.`);
+      }
+
+      return { ...output, catalog_id: output.catalog_id || catalogId };
+    } catch (error: any) {
+      // Re-throw the error with catalog context so it bubbles up to the UI
+      throw new Error(`AI Diagnostic Error for catalog ${catalogId}: ${error.message || "Unknown error"}`);
+    }
+  });
+
+  const results = await Promise.all(diagnosticPromises);
+  return results.filter((res): res is DiagnoseBiddingOutput => res !== null);
 }
