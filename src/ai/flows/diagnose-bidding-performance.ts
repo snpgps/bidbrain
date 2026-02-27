@@ -24,47 +24,59 @@ const LLMPromptInputSchema = z.object({
   catalog_id: z
     .string()
     .describe('The ID of the catalog for which the data is provided.'),
+  pUp: z.number().describe('The P_up constant used in the control system.'),
+  pDown: z.number().describe('The P_down constant used in the control system.'),
 });
 
 const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
   input: { schema: LLMPromptInputSchema },
   output: { schema: DiagnoseBiddingOutputSchema },
-  system: `You are a senior Ads Bidding PM analyzing catalog-level bidding data.
+  system: `You are a senior Ads Bidding PM and Data Scientist. You are diagnosing a bidding control system based on the following logic:
 
-Your job:
-Diagnose root cause of either:
-* Low Budget Utilisation (BU)
-  OR
-* Low ROI Delivery
+CORE SYSTEM LOGIC:
+1. Bid Formula: Bid = alpha * pCVR * (AOV / SL_ROI). alpha is a pacing multiplier.
+2. Error Calculation: error = (SL_ROI - matured_ROI) / SL_ROI. 
+   - error > 0: Under-delivering ROI (Need to decrease bids/alpha).
+   - error < 0: Over-delivering ROI (Can increase bids/alpha).
+3. Correction Asymmetry (P-values):
+   - P_down (default 0.2): Used when error > 0 to react fast and protect ROI.
+   - P_up (default 0.1): Used when error < 0 to scale slowly and avoid ROI drops.
+4. Alpha Update: alpha_t = alpha_t-1 * clip(1 + P * error, 0.5, 1.5).
+5. Reliability: Uses a rolling window N (3000 clicks) and updates every K (600 clicks).
+6. BU Behavior: Budget Utilization resets if the budget is changed during the day (check budget_change_flag).
 
-Use only the provided data.
-Be structured.
-Be precise.
-Avoid generic explanations.`,
+DIAGNOSIS GUIDELINES:
+- For "Low BU Analysis":
+    * Severity is "High" ONLY if Low BU is persistent across multiple full days.
+    * Check if alpha is suppressed due to "Over-aggressive ROI correction" (P_down too high or error calculation noise).
+    * Consider "Seller SL too high" as a common cause for low delivery.
+- For "Low Delivery Analysis":
+    * Look for alpha stagnation or "Under-reaction" (P_up too low).
+    * Check for "Bidding ceiling" where even high alpha doesn't increase spend.
+
+Use the provided JSON data (which excludes the current incomplete day) to identify the primary root cause.`,
   prompt: `Analysis Type: {{{analysisType}}}
+Current System Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}
 
-Below is time-bucket level data for a single catalog.
-
-Data:
+Catalog Data (Time-bucketed):
 {{{catalogDataJson}}}
 
 Tasks:
-
-1. Determine whether the stated issue is valid.
-2. Identify the primary root cause. Choose one:
-   * Over-aggressive ROI correction
-   * Under-reaction (P too low)
-   * Noise from high click velocity
-   * Window size (N) too small for traffic
-   * Daypart volatility
-   * Delayed order maturity distortion
-   * Budget guardrail interference
-   * Seller SL too high
-   * Bidding ceiling (auction limitation)
-3. Provide evidence from data.
-4. Recommend parameter/system change.
-5. Classify severity: Low / Medium / High.
+1. Confirm if the issue is valid based on the multi-day trends.
+2. Identify the root cause from this specific list:
+   - Over-aggressive ROI correction
+   - Under-reaction (P too low)
+   - Noise from high click velocity
+   - Window size (N) too small for traffic
+   - Daypart volatility
+   - Delayed order maturity distortion
+   - Budget guardrail interference
+   - Seller SL too high
+   - Bidding ceiling (auction limitation)
+3. Provide evidence (mention specific ROI, SL_ROI, or Alpha trends).
+4. Recommend a fix (e.g., "Decrease P_down", "Increase N", "Lower SL_ROI").
+5. Assign Severity: Low, Medium, or High (High only for persistent BU issues).
 
 Return output in JSON format:
 {
@@ -86,9 +98,28 @@ const diagnoseBiddingPerformanceFlow = ai.defineFlow(
   async (input) => {
     const {analysisType, biddingData} = input;
 
+    if (biddingData.length === 0) return [];
+
+    // 1. Ignore the current (latest) day in the data
+    const dates = biddingData.map(row => row.timestamp.split(' ')[0] || row.timestamp.split('T')[0]);
+    const uniqueDates = [...new Set(dates)].sort();
+    const latestDate = uniqueDates[uniqueDates.length - 1];
+    
+    const filteredData = biddingData.filter(row => {
+      const date = row.timestamp.split(' ')[0] || row.timestamp.split('T')[0];
+      return date !== latestDate;
+    });
+
+    if (filteredData.length === 0) {
+      // If filtering leaves nothing (e.g., only 1 day of data), 
+      // we might need to use all data or throw an error. 
+      // For safety in this tool, we'll return an empty result with a note if we could.
+      return []; 
+    }
+
     const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
 
-    for (const row of biddingData) {
+    for (const row of filteredData) {
       if (!catalogDataMap.has(row.catalog_id)) {
         catalogDataMap.set(row.catalog_id, []);
       }
@@ -97,14 +128,19 @@ const diagnoseBiddingPerformanceFlow = ai.defineFlow(
 
     const results: DiagnoseBiddingOutput[] = [];
 
+    // We assume p_up and p_down are provided in the first row or as part of the enriched data from page.tsx
+    const pUp = biddingData[0]?.p_up ?? 0.1;
+    const pDown = biddingData[0]?.p_down ?? 0.2;
+
     for (const [catalog_id, catalogRows] of catalogDataMap.entries()) {
       const {output} = await diagnoseBiddingPrompt({
         analysisType,
         catalogDataJson: JSON.stringify(catalogRows, null, 2),
         catalog_id: catalog_id,
+        pUp,
+        pDown,
       });
       if (output) {
-        // Ensure the catalog_id from the data matches the LLM's output for consistency
         results.push({...output, catalog_id: output.catalog_id || catalog_id});
       }
     }
