@@ -44,6 +44,8 @@ export const DiagnoseBiddingInputSchema = z.object({
   biddingData: z
     .array(BiddingDataRowSchema)
     .describe('Array of bidding data rows for multiple catalogs.'),
+  nWindow: z.number().optional().describe('The window size N for ROI stability.'),
+  kTrigger: z.number().optional().describe('The update trigger K (clicks).'),
 });
 export type DiagnoseBiddingInput = z.infer<typeof DiagnoseBiddingInputSchema>;
 

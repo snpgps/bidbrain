@@ -16,6 +16,8 @@ export default function BidBrainPage() {
   const [analysisType, setAnalysisType] = useState<'Low BU Analysis' | 'Low Delivery Analysis'>('Low BU Analysis');
   const [pUp, setPUp] = useState<number>(0.1);
   const [pDown, setPDown] = useState<number>(0.2);
+  const [nWindow, setNWindow] = useState<number>(1800);
+  const [kTrigger, setKTrigger] = useState<number>(360);
   const [results, setResults] = useState<DiagnoseBiddingOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,9 @@ export default function BidBrainPage() {
 
       const diagnosticResults = await diagnoseBiddingPerformance({
         analysisType,
-        biddingData: enrichedData
+        biddingData: enrichedData,
+        nWindow,
+        kTrigger
       });
       
       if (!diagnosticResults || diagnosticResults.length === 0) {
@@ -47,7 +51,6 @@ export default function BidBrainPage() {
       setResults(diagnosticResults);
     } catch (err: any) {
       console.error("Diagnostic Run Error:", err);
-      // Surface the precise error message
       setError(err.message || "An unexpected error occurred during AI diagnostics.");
     } finally {
       setIsLoading(false);
@@ -142,6 +145,10 @@ export default function BidBrainPage() {
                   pDown={pDown}
                   onPUpChange={setPUp}
                   onPDownChange={setPDown}
+                  nWindow={nWindow}
+                  onNWindowChange={setNWindow}
+                  kTrigger={kTrigger}
+                  onKTriggerChange={setKTrigger}
                 />
                 
                 <div className="p-4 rounded-xl border bg-card/40 text-xs text-muted-foreground flex items-start space-x-3 shadow-sm">

@@ -4,7 +4,7 @@ import React from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { PlayCircle, Loader2, SlidersHorizontal } from 'lucide-react';
+import { PlayCircle, Loader2, SlidersHorizontal, Settings2 } from 'lucide-react';
 
 interface AnalysisControlsProps {
   analysisType: 'Low BU Analysis' | 'Low Delivery Analysis';
@@ -16,6 +16,10 @@ interface AnalysisControlsProps {
   pDown: number;
   onPUpChange: (val: number) => void;
   onPDownChange: (val: number) => void;
+  nWindow: number;
+  onNWindowChange: (val: number) => void;
+  kTrigger: number;
+  onKTriggerChange: (val: number) => void;
 }
 
 export function AnalysisControls({
@@ -28,6 +32,10 @@ export function AnalysisControls({
   pDown,
   onPUpChange,
   onPDownChange,
+  nWindow,
+  onNWindowChange,
+  kTrigger,
+  onKTriggerChange,
 }: AnalysisControlsProps) {
   return (
     <div className="space-y-4">
@@ -71,15 +79,15 @@ export function AnalysisControls({
         </div>
       </div>
 
-      <div className="bg-muted/30 p-4 rounded-xl border border-dashed flex flex-col sm:flex-row gap-6">
-        <div className="flex items-center space-x-2 text-muted-foreground shrink-0">
+      <div className="bg-muted/30 p-4 rounded-xl border border-dashed space-y-4">
+        <div className="flex items-center space-x-2 text-muted-foreground">
           <SlidersHorizontal className="w-4 h-4" />
-          <span className="text-sm font-medium">Bidding Parameters</span>
+          <span className="text-sm font-medium">Bidding Constants</span>
         </div>
         
-        <div className="flex-1 grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted-foreground uppercase">p_up constant</label>
+            <label className="text-[10px] font-bold text-muted-foreground uppercase">p_up</label>
             <Input
               type="number"
               step="0.01"
@@ -90,12 +98,40 @@ export function AnalysisControls({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-muted-foreground uppercase">p_down constant</label>
+            <label className="text-[10px] font-bold text-muted-foreground uppercase">p_down</label>
             <Input
               type="number"
               step="0.01"
               value={pDown}
               onChange={(e) => onPDownChange(parseFloat(e.target.value) || 0)}
+              disabled={isLoading || disabled}
+              className="h-9 bg-background"
+            />
+          </div>
+        </div>
+
+        <div className="pt-2 flex items-center space-x-2 text-muted-foreground">
+          <Settings2 className="w-4 h-4" />
+          <span className="text-sm font-medium">Reliability & Triggers</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase">N (Window size)</label>
+            <Input
+              type="number"
+              value={nWindow}
+              onChange={(e) => onNWindowChange(parseInt(e.target.value) || 0)}
+              disabled={isLoading || disabled}
+              className="h-9 bg-background"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-muted-foreground uppercase">K (Trigger clicks)</label>
+            <Input
+              type="number"
+              value={kTrigger}
+              onChange={(e) => onKTriggerChange(parseInt(e.target.value) || 0)}
               disabled={isLoading || disabled}
               className="h-9 bg-background"
             />
