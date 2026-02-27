@@ -13,6 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 export default function BidBrainPage() {
   const [biddingData, setBiddingData] = useState<any[]>([]);
   const [analysisType, setAnalysisType] = useState<'Low BU Analysis' | 'Low Delivery Analysis'>('Low BU Analysis');
+  const [pUp, setPUp] = useState<number>(0.1);
+  const [pDown, setPDown] = useState<number>(0.2);
   const [results, setResults] = useState<DiagnoseBiddingOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -24,10 +26,16 @@ export default function BidBrainPage() {
     setResults([]);
 
     try {
-      // The flow handles grouping by catalog_id internally
+      // Inject the manual p_up and p_down constants into each data row
+      const enrichedData = biddingData.map(row => ({
+        ...row,
+        p_up: pUp,
+        p_down: pDown
+      }));
+
       const diagnosticResults = await diagnoseBiddingPerformance({
         analysisType,
-        biddingData
+        biddingData: enrichedData
       });
       setResults(diagnosticResults);
       
@@ -64,11 +72,11 @@ export default function BidBrainPage() {
           <div className="flex items-center space-x-4 text-sm font-medium text-muted-foreground">
             <div className="flex items-center space-x-1">
               <Database className="w-4 h-4" />
-              <span>Local Data</span>
+              <span>CSV Data</span>
             </div>
             <div className="flex items-center space-x-1">
               <ShieldCheck className="w-4 h-4" />
-              <span>Diagnostic Only</span>
+              <span>Local Privacy</span>
             </div>
           </div>
         </div>
@@ -78,53 +86,62 @@ export default function BidBrainPage() {
         {/* Intro Section */}
         <section className="space-y-4">
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-accent/10 text-accent text-xs font-bold uppercase tracking-wider">
-            Internal Diagnostics Tool
+            Bidding Performance Engine
           </div>
           <div className="space-y-2">
-            <h2 className="text-3xl font-bold font-headline text-foreground">
-              Bidding Performance Agent
+            <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
+              Diagnostic Bidding Agent
             </h2>
-            <p className="text-muted-foreground max-w-2xl">
-              Upload multi-day, time-bucket level catalog data to identify root causes for budget utilization and delivery issues using AI.
+            <p className="text-muted-foreground max-w-2xl text-lg">
+              Analyze catalog-level performance using AI to pinpoint bidding inefficiencies and parameter drifts.
             </p>
           </div>
         </section>
 
         {/* Upload & Controls */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          <div className="lg:col-span-7">
-            <CsvUploader
-              onDataLoaded={setBiddingData}
-              onClear={() => {
-                setBiddingData([]);
-                setResults([]);
-              }}
-            />
-          </div>
-          <div className="lg:col-span-5">
-            <AnalysisControls
-              analysisType={analysisType}
-              onTypeChange={setAnalysisType}
-              onRunAnalysis={handleRunAnalysis}
-              isLoading={isLoading}
-              disabled={biddingData.length === 0}
-            />
-            
-            <div className="mt-4 p-4 rounded-xl border bg-card/40 text-xs text-muted-foreground flex items-start space-x-3">
-              <div className="p-1.5 rounded-full bg-primary/10 text-primary shrink-0">
-                <Settings2 className="w-3.5 h-3.5" />
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-12">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <CsvUploader
+                onDataLoaded={setBiddingData}
+                onClear={() => {
+                  setBiddingData([]);
+                  setResults([]);
+                }}
+              />
+              <div className="space-y-4">
+                <AnalysisControls
+                  analysisType={analysisType}
+                  onTypeChange={setAnalysisType}
+                  onRunAnalysis={handleRunAnalysis}
+                  isLoading={isLoading}
+                  disabled={biddingData.length === 0}
+                  pUp={pUp}
+                  pDown={pDown}
+                  onPUpChange={setPUp}
+                  onPDownChange={setPDown}
+                />
+                
+                <div className="p-4 rounded-xl border bg-card/40 text-xs text-muted-foreground flex items-start space-x-3 shadow-sm">
+                  <div className="p-1.5 rounded-full bg-primary/10 text-primary shrink-0">
+                    <Settings2 className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-foreground">Usage Guidelines</p>
+                    <p>
+                      Ensure your CSV columns match the requirement: <code>ts</code> for timestamp and <code>roi_min</code> for stop-loss ROI. Constants for <code>p_up</code> and <code>p_down</code> are applied globally across all catalogs in the current analysis.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p>
-                <strong>Pro Tip:</strong> Ensure your CSV includes all 14 required columns. The LLM processes data per <code>catalog_id</code> to identify patterns like aggressive ROI correction or bidding ceilings.
-              </p>
             </div>
           </div>
         </section>
 
         {/* Results */}
-        <section className="space-y-6">
+        <section className="space-y-6 pt-4">
           {isLoading && (
-            <div className="flex flex-col items-center justify-center py-20 space-y-4 animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex flex-col items-center justify-center py-20 space-y-4 animate-in fade-in zoom-in-95 duration-300 bg-card rounded-2xl border border-border shadow-sm">
               <div className="relative">
                 <BarChart3 className="w-12 h-12 text-primary/20 animate-pulse" />
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -132,8 +149,8 @@ export default function BidBrainPage() {
                 </div>
               </div>
               <div className="text-center space-y-1">
-                <p className="font-semibold text-lg">Running AI Diagnostics</p>
-                <p className="text-sm text-muted-foreground">Evaluating bidding performance metrics across catalogs...</p>
+                <p className="font-bold text-xl font-headline">Processing AI Diagnostics</p>
+                <p className="text-sm text-muted-foreground">Cross-referencing ROI trends and budget utilization patterns...</p>
               </div>
             </div>
           )}
@@ -143,9 +160,10 @@ export default function BidBrainPage() {
           )}
 
           {!isLoading && results.length === 0 && biddingData.length > 0 && (
-            <div className="py-20 text-center border border-dashed rounded-xl bg-muted/30">
-              <BarChart3 className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">Ready to analyze. Click "Run Diagnostics" to begin.</p>
+            <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20">
+              <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
+              <p className="text-muted-foreground font-medium text-lg">Ready to diagnose {biddingData.length} data points.</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">Configure your parameters and click "Run Diagnostics".</p>
             </div>
           )}
         </section>

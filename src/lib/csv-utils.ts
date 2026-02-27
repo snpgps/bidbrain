@@ -1,11 +1,11 @@
-import { DiagnoseBiddingInput } from '@/ai/flows/diagnose-bidding-performance.schema';
+import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 
 export const REQUIRED_COLUMNS = [
   'catalog_id',
-  'timestamp',
+  'ts',
   'catalog_roi',
   'roi_target',
-  'sl_roi',
+  'roi_min',
   'catalog_clicks',
   'catalog_gmv',
   'catalog_bu_perc',
@@ -13,8 +13,6 @@ export const REQUIRED_COLUMNS = [
   'day_roi',
   'spend',
   'alpha',
-  'p_up',
-  'p_down',
 ];
 
 export function parseBiddingCsv(csvText: string): any[] {
@@ -34,12 +32,19 @@ export function parseBiddingCsv(csvText: string): any[] {
     const row: any = {};
     headers.forEach((header, index) => {
       const val = values[index];
+      
+      // Map incoming CSV headers to schema keys
+      let schemaKey = header;
+      if (header === 'ts') schemaKey = 'timestamp';
+      if (header === 'roi_min') schemaKey = 'sl_roi';
+
       // Convert numeric fields
       if (
         [
           'catalog_roi',
           'roi_target',
-          'sl_roi',
+          'sl_roi', // mapped
+          'roi_min', // incoming
           'catalog_clicks',
           'catalog_gmv',
           'catalog_bu_perc',
@@ -50,13 +55,13 @@ export function parseBiddingCsv(csvText: string): any[] {
           'p_up',
           'p_down',
           'n_window',
-        ].includes(header)
+        ].includes(schemaKey)
       ) {
-        row[header] = parseFloat(val) || 0;
-      } else if (['budget_change_flag', 'sl_change_flag', 'k_trigger_flag'].includes(header)) {
-        row[header] = val.toLowerCase() === 'true';
+        row[schemaKey] = parseFloat(val) || 0;
+      } else if (['budget_change_flag', 'sl_change_flag', 'k_trigger_flag'].includes(schemaKey)) {
+        row[schemaKey] = val.toLowerCase() === 'true';
       } else {
-        row[header] = val;
+        row[schemaKey] = val;
       }
     });
     results.push(row);
