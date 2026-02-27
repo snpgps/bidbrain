@@ -98,54 +98,62 @@ const diagnoseBiddingPerformanceFlow = ai.defineFlow(
   async (input) => {
     const {analysisType, biddingData} = input;
 
-    if (biddingData.length === 0) return [];
+    if (!biddingData || biddingData.length === 0) return [];
 
-    // 1. Ignore the current (latest) day in the data
-    const dates = biddingData.map(row => row.timestamp.split(' ')[0] || row.timestamp.split('T')[0]);
-    const uniqueDates = [...new Set(dates)].sort();
-    const latestDate = uniqueDates[uniqueDates.length - 1];
-    
-    const filteredData = biddingData.filter(row => {
-      const date = row.timestamp.split(' ')[0] || row.timestamp.split('T')[0];
-      return date !== latestDate;
-    });
-
-    if (filteredData.length === 0) {
-      // If filtering leaves nothing (e.g., only 1 day of data), 
-      // we might need to use all data or throw an error. 
-      // For safety in this tool, we'll return an empty result with a note if we could.
-      return []; 
-    }
-
+    // 1. Group by catalog first
     const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
-
-    for (const row of filteredData) {
+    for (const row of biddingData) {
       if (!catalogDataMap.has(row.catalog_id)) {
         catalogDataMap.set(row.catalog_id, []);
       }
       catalogDataMap.get(row.catalog_id)?.push(row);
     }
 
-    const results: DiagnoseBiddingOutput[] = [];
+    const catalogIds = Array.from(catalogDataMap.keys());
+    const limitedCatalogIds = catalogIds.slice(0, 20); // Cap at 20 catalogs to avoid timeouts
 
-    // We assume p_up and p_down are provided in the first row or as part of the enriched data from page.tsx
+    // 2. Process each catalog's data (filter current day per catalog)
     const pUp = biddingData[0]?.p_up ?? 0.1;
     const pDown = biddingData[0]?.p_down ?? 0.2;
 
-    for (const [catalog_id, catalogRows] of catalogDataMap.entries()) {
-      const {output} = await diagnoseBiddingPrompt({
-        analysisType,
-        catalogDataJson: JSON.stringify(catalogRows, null, 2),
-        catalog_id: catalog_id,
-        pUp,
-        pDown,
-      });
-      if (output) {
-        results.push({...output, catalog_id: output.catalog_id || catalog_id});
+    const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
+      const catalogRows = catalogDataMap.get(catalogId)!;
+      
+      // Determine the latest day in this catalog's data
+      const dates = catalogRows.map(row => row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0]).filter(Boolean);
+      const uniqueDates = [...new Set(dates)].sort();
+      
+      let filteredData = catalogRows;
+      if (uniqueDates.length > 1) {
+        const latestDate = uniqueDates[uniqueDates.length - 1];
+        filteredData = catalogRows.filter(row => {
+          const date = row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0];
+          return date !== latestDate;
+        });
       }
-    }
 
-    return results;
+      if (filteredData.length === 0) return null;
+
+      // Take most recent 50 buckets to avoid context bloat and speed up inference
+      const recentData = filteredData.slice(-50);
+
+      try {
+        const {output} = await diagnoseBiddingPrompt({
+          analysisType,
+          catalogDataJson: JSON.stringify(recentData, null, 2),
+          catalog_id: catalogId,
+          pUp,
+          pDown,
+        });
+        return output ? { ...output, catalog_id: output.catalog_id || catalogId } : null;
+      } catch (error) {
+        console.error(`Error processing catalog ${catalogId}:`, error);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(diagnosticPromises);
+    return results.filter((res): res is DiagnoseBiddingOutput => res !== null);
   }
 );
 
