@@ -67,13 +67,16 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('The primary root cause of the performance issue.'),
   evidence: z
     .string()
-    .describe('Evidence from the data supporting the diagnosis.'),
+    .describe('Evidence from the data supporting the diagnosis. Use SL ROI and ROI Target terms.'),
   recommendation: z
     .string()
     .describe('Recommended parameter/system change to address the issue.'),
   severity: z
     .enum(['Low', 'Medium', 'High'])
     .describe('The severity of the issue.'),
+  severity_justification: z
+    .string()
+    .describe('Detailed reasoning for the chosen severity level at the catalog level.'),
 });
 export type DiagnoseBiddingOutput = z.infer<
   typeof DiagnoseBiddingOutputSchema

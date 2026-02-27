@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
-import { CheckCircle2, XCircle, AlertTriangle, Info, Download } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Info, Download, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { exportResultsToCsv } from '@/lib/csv-utils';
 
@@ -53,7 +53,7 @@ export function ResultsView({ results, analysisType }: ResultsViewProps) {
           <TableHeader>
             <TableRow className="bg-muted/50">
               <TableHead className="w-[180px]">Catalog ID</TableHead>
-              <TableHead>Issue Confirmed</TableHead>
+              <TableHead>Issue Status</TableHead>
               <TableHead>Root Cause</TableHead>
               <TableHead>Severity</TableHead>
             </TableRow>
@@ -88,27 +88,40 @@ export function ResultsView({ results, analysisType }: ResultsViewProps) {
                     <Accordion type="single" collapsible className="w-full">
                       <AccordionItem value="details" className="border-b-0">
                         <AccordionTrigger className="px-4 py-2 hover:bg-muted/30 hover:no-underline text-xs text-muted-foreground font-normal">
-                          View Detailed Analysis
+                          View Detailed Analysis & Justification
                         </AccordionTrigger>
                         <AccordionContent className="px-6 py-4 bg-muted/20 border-t">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-3">
-                              <div className="flex items-center text-sm font-semibold text-primary">
-                                <Info className="w-4 h-4 mr-2" />
-                                Data Evidence
+                            <div className="space-y-6">
+                              <div className="space-y-2">
+                                <div className="flex items-center text-sm font-semibold text-primary">
+                                  <Info className="w-4 h-4 mr-2" />
+                                  Diagnostic Evidence
+                                </div>
+                                <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
+                                  {result.evidence}
+                                </p>
                               </div>
-                              <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
-                                {result.evidence}
-                              </p>
+                              <div className="space-y-2">
+                                <div className="flex items-center text-sm font-semibold text-destructive">
+                                  <ShieldAlert className="w-4 h-4 mr-2" />
+                                  Severity Justification
+                                </div>
+                                <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
+                                  {result.severity_justification}
+                                </p>
+                              </div>
                             </div>
                             <div className="space-y-3">
                               <div className="flex items-center text-sm font-semibold text-accent">
                                 <CheckCircle2 className="w-4 h-4 mr-2" />
-                                Recommendation
+                                Actionable Recommendation
                               </div>
-                              <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
-                                {result.recommendation}
-                              </p>
+                              <div className="bg-background p-4 rounded-lg border border-accent/20 shadow-sm">
+                                <p className="text-sm leading-relaxed text-foreground font-medium">
+                                  {result.recommendation}
+                                </p>
+                              </div>
                             </div>
                           </div>
                         </AccordionContent>

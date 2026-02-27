@@ -1,8 +1,6 @@
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for diagnosing bidding performance issues.
- *
- * - diagnoseBiddingPerformance - A function that orchestrates the AI-powered diagnosis of bidding data.
  */
 
 import {ai} from '@/ai/genkit';
@@ -32,60 +30,54 @@ const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
   input: { schema: LLMPromptInputSchema },
   output: { schema: DiagnoseBiddingOutputSchema },
-  system: `You are a senior Ads Bidding PM and Data Scientist. You are diagnosing a bidding control system based on the following logic:
+  system: `You are a senior Ads Bidding PM and Data Scientist. You are diagnosing a bidding control system.
 
 CORE SYSTEM LOGIC:
 1. Bid Formula: Bid = alpha * pCVR * (AOV / SL_ROI). alpha is a pacing multiplier.
 2. Error Calculation: error = (SL_ROI - matured_ROI) / SL_ROI. 
-   - error > 0: Under-delivering ROI (Need to decrease bids/alpha).
-   - error < 0: Over-delivering ROI (Can increase bids/alpha).
+   - error > 0: Under-delivering ROI (Need to decrease bids/pacing).
+   - error < 0: Over-delivering ROI (Can increase bids/pacing).
 3. Correction Asymmetry (P-values):
-   - P_down: Used when error > 0 to react fast and protect ROI.
-   - P_up: Used when error < 0 to scale slowly and avoid ROI drops.
-4. Alpha Update: alpha_t = alpha_t-1 * clip(1 + P * error, 0.5, 1.5).
-5. Reliability: Uses a rolling window N (3000 clicks) and updates every K (600 clicks).
-6. BU Behavior: Budget Utilization resets if the budget is changed during the day (check budget_change_flag).
+   - P_down: React fast when ROI is below SL_ROI.
+   - P_up: Scale slowly when ROI is above SL_ROI.
+4. Update Rule: alpha_t = alpha_t-1 * clip(1 + P * error, 0.5, 1.5).
+
+COMMUNICATION CONSTRAINTS:
+- NEVER use the term "alpha" in your evidence or reasoning.
+- ALWAYS use the terms "SL ROI" and "ROI target" to describe performance benchmarks.
+- Use "Budget Pacing" and "ROI Pacing" to describe the system's directional adjustments.
 
 DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
-    * Severity is "High" ONLY if Low BU is persistent across multiple full days.
-    * Check if alpha is suppressed due to "Over-aggressive ROI correction" (P_down too high or error calculation noise).
-    * Consider "Seller SL too high" as a common cause for low delivery.
+    * Severity is "High" ONLY if Low BU (Budget Utilization) is persistent across multiple full days of historical data.
+    * Check if ROI Pacing is suppressed due to "Over-aggressive ROI correction" where SL ROI is much higher than matured ROI.
 - For "Low Delivery Analysis":
-    * Look for alpha stagnation or "Under-reaction" (P_up too low).
-    * Check for "Bidding ceiling" where even high alpha doesn't increase spend.
+    * Look for ROI Pacing stagnation or "Under-reaction" where the system fails to scale despite matured ROI being better than SL ROI.
 
-Use the provided JSON data (which excludes the current incomplete day) to identify the primary root cause.`,
+Note: The data provided has already been filtered to remove the current ongoing day. All data buckets are from completed days.`,
   prompt: `Analysis Type: {{{analysisType}}}
 Current System Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}
 
-Catalog Data (Time-bucketed):
+Catalog Data (Historical Full Days Only):
 {{{catalogDataJson}}}
 
 Tasks:
 1. Confirm if the issue is valid based on the multi-day trends.
-2. Identify the root cause from this specific list:
-   - Over-aggressive ROI correction
-   - Under-reaction (P too low)
-   - Noise from high click velocity
-   - Window size (N) too small for traffic
-   - Daypart volatility
-   - Delayed order maturity distortion
-   - Budget guardrail interference
-   - Seller SL too high
-   - Bidding ceiling (auction limitation)
-3. Provide evidence (mention specific ROI, SL_ROI, or Alpha trends).
-4. Recommend a fix (e.g., "Decrease P_down", "Increase N", "Lower SL_ROI").
-5. Assign Severity: Low, Medium, or High (High only for persistent BU issues).
+2. Identify the root cause from the provided schema list.
+3. Provide evidence: Quote specific values for SL ROI, ROI Target, and matured ROI. Describe Budget Pacing trends.
+4. Recommend a fix (e.g., "Decrease P_down", "Lower SL_ROI").
+5. Assign Severity: Low, Medium, or High.
+6. Provide a "severity_justification": Justify the severity at the catalog level based on persistency and revenue impact.
 
 Return output in JSON format:
 {
-"catalog_id": "",
+"catalog_id": "{{{catalog_id}}}",
 "issue_confirmed": true/false,
 "root_cause": "",
 "evidence": "",
 "recommendation": "",
-"severity": ""
+"severity": "",
+"severity_justification": ""
 }`,
 });
 
@@ -108,7 +100,7 @@ export async function diagnoseBiddingPerformance(
   }
 
   const catalogIds = Array.from(catalogDataMap.keys());
-  const limitedCatalogIds = catalogIds.slice(0, 20); // Cap at 20 catalogs to avoid timeouts
+  const limitedCatalogIds = catalogIds.slice(0, 20);
 
   const pUp = biddingData[0]?.p_up ?? 0.1;
   const pDown = biddingData[0]?.p_down ?? 0.2;
@@ -117,22 +109,32 @@ export async function diagnoseBiddingPerformance(
   const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
     const catalogRows = catalogDataMap.get(catalogId)!;
     
-    // Determine the latest day in this catalog's data to exclude it
-    const dates = catalogRows.map(row => row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0]).filter(Boolean);
-    const uniqueDates = [...new Set(dates)].sort();
+    // STRICT FILTERING: Identify and remove the absolute latest date present in the data
+    const dateStrings = catalogRows.map(row => {
+      // Handle various timestamp formats robustly
+      const t = row.timestamp || "";
+      return t.includes(' ') ? t.split(' ')[0] : t.split('T')[0];
+    }).filter(d => d.length > 0);
+
+    const uniqueDates = [...new Set(dateStrings)].sort();
     
     let filteredData = catalogRows;
-    if (uniqueDates.length > 1) {
+    if (uniqueDates.length > 0) {
       const latestDate = uniqueDates[uniqueDates.length - 1];
+      // Exclude everything belonging to the latest date (which is assumed to be today/ongoing)
       filteredData = catalogRows.filter(row => {
-        const date = row.timestamp?.split(' ')[0] || row.timestamp?.split('T')[0];
-        return date !== latestDate;
+        const t = row.timestamp || "";
+        const rowDate = t.includes(' ') ? t.split(' ')[0] : t.split('T')[0];
+        return rowDate !== latestDate;
       });
     }
 
-    if (filteredData.length === 0) return null;
+    if (filteredData.length === 0) {
+       console.warn(`No historical data left for catalog ${catalogId} after filtering today's data.`);
+       return null;
+    }
 
-    // Take most recent 50 buckets to avoid context bloat and speed up inference
+    // Take recent buckets
     const recentData = filteredData.slice(-50);
 
     try {
@@ -145,13 +147,12 @@ export async function diagnoseBiddingPerformance(
       });
 
       if (!output) {
-        throw new Error(`The AI was unable to generate a valid analysis for catalog ${catalogId}.`);
+        throw new Error(`AI failed to generate analysis for catalog ${catalogId}.`);
       }
 
-      return { ...output, catalog_id: output.catalog_id || catalogId };
+      return { ...output, catalog_id: catalogId };
     } catch (error: any) {
-      // Re-throw the error with catalog context so it bubbles up to the UI
-      throw new Error(`AI Diagnostic Error for catalog ${catalogId}: ${error.message || "Unknown error"}`);
+      throw new Error(`AI Error for ${catalogId}: ${error.message}`);
     }
   });
 
