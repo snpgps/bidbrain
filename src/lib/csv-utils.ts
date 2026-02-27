@@ -11,7 +11,7 @@ export const REQUIRED_COLUMNS = [
   'catalog_bu_perc',
   'bu_ideal',
   'day_roi',
-  'spend',
+  'catalog_bugdet_utilised',
   'alpha',
 ];
 
@@ -37,20 +37,22 @@ export function parseBiddingCsv(csvText: string): any[] {
       let schemaKey = header;
       if (header === 'ts') schemaKey = 'timestamp';
       if (header === 'roi_min') schemaKey = 'sl_roi';
+      if (header === 'catalog_bugdet_utilised') schemaKey = 'spend';
 
       // Convert numeric fields
       if (
         [
           'catalog_roi',
           'roi_target',
-          'sl_roi', // mapped
+          'sl_roi', // mapped from roi_min
           'roi_min', // incoming
           'catalog_clicks',
           'catalog_gmv',
           'catalog_bu_perc',
           'bu_ideal',
           'day_roi',
-          'spend',
+          'spend', // mapped from catalog_bugdet_utilised
+          'catalog_bugdet_utilised', // incoming
           'alpha',
           'p_up',
           'p_down',
