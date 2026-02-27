@@ -17,16 +17,18 @@ import {
 } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
-import { CheckCircle2, AlertTriangle, Info, Download, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Info, Download, ShieldAlert, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { exportResultsToCsv } from '@/lib/csv-utils';
+import { CatalogPerformanceChart } from './catalog-performance-chart';
 
 interface ResultsViewProps {
   results: DiagnoseBiddingOutput[];
   analysisType: string;
+  originalData: any[];
 }
 
-export function ResultsView({ results, analysisType }: ResultsViewProps) {
+export function ResultsView({ results, analysisType, originalData }: ResultsViewProps) {
   if (results.length === 0) return null;
 
   const getSeverityColor = (severity: string) => {
@@ -36,6 +38,12 @@ export function ResultsView({ results, analysisType }: ResultsViewProps) {
       case 'low': return 'default';
       default: return 'outline';
     }
+  };
+
+  const getCatalogData = (catalogId: string) => {
+    return originalData.filter(d => d.catalog_id === catalogId).sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
   };
 
   return (
@@ -88,39 +96,52 @@ export function ResultsView({ results, analysisType }: ResultsViewProps) {
                     <Accordion type="single" collapsible className="w-full">
                       <AccordionItem value="details" className="border-b-0">
                         <AccordionTrigger className="px-4 py-2 hover:bg-muted/30 hover:no-underline text-xs text-muted-foreground font-normal">
-                          View Detailed Analysis & Justification
+                          View Detailed Analysis & Performance Graph
                         </AccordionTrigger>
                         <AccordionContent className="px-6 py-4 bg-muted/20 border-t">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-6">
-                              <div className="space-y-2">
-                                <div className="flex items-center text-sm font-semibold text-primary">
-                                  <Info className="w-4 h-4 mr-2" />
-                                  Diagnostic Evidence
-                                </div>
-                                <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
-                                  {result.evidence}
-                                </p>
+                          <div className="space-y-8">
+                            {/* Performance Graph Section */}
+                            <div className="space-y-2">
+                              <div className="flex items-center text-sm font-semibold text-foreground">
+                                <BarChart3 className="w-4 h-4 mr-2 text-primary" />
+                                Performance Trends
                               </div>
-                              <div className="space-y-2">
-                                <div className="flex items-center text-sm font-semibold text-destructive">
-                                  <ShieldAlert className="w-4 h-4 mr-2" />
-                                  Severity Justification
-                                </div>
-                                <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
-                                  {result.severity_justification}
-                                </p>
+                              <div className="bg-background p-4 rounded-xl border shadow-sm">
+                                <CatalogPerformanceChart data={getCatalogData(result.catalog_id)} />
                               </div>
                             </div>
-                            <div className="space-y-3">
-                              <div className="flex items-center text-sm font-semibold text-accent">
-                                <CheckCircle2 className="w-4 h-4 mr-2" />
-                                Actionable Recommendation
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                              <div className="space-y-6">
+                                <div className="space-y-2">
+                                  <div className="flex items-center text-sm font-semibold text-primary">
+                                    <Info className="w-4 h-4 mr-2" />
+                                    Diagnostic Evidence
+                                  </div>
+                                  <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
+                                    {result.evidence}
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex items-center text-sm font-semibold text-destructive">
+                                    <ShieldAlert className="w-4 h-4 mr-2" />
+                                    Severity Justification
+                                  </div>
+                                  <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
+                                    {result.severity_justification}
+                                  </p>
+                                </div>
                               </div>
-                              <div className="bg-background p-4 rounded-lg border border-accent/20 shadow-sm">
-                                <p className="text-sm leading-relaxed text-foreground font-medium">
-                                  {result.recommendation}
-                                </p>
+                              <div className="space-y-3">
+                                <div className="flex items-center text-sm font-semibold text-accent">
+                                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                                  Actionable Recommendation
+                                </div>
+                                <div className="bg-background p-4 rounded-lg border border-accent/20 shadow-sm">
+                                  <p className="text-sm leading-relaxed text-foreground font-medium">
+                                    {result.recommendation}
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           </div>

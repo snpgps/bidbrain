@@ -185,7 +185,11 @@ export default function BidBrainPage() {
           )}
 
           {!isLoading && results.length > 0 && (
-            <ResultsView results={results} analysisType={analysisType} />
+            <ResultsView 
+              results={results} 
+              analysisType={analysisType} 
+              originalData={biddingData}
+            />
           )}
 
           {!isLoading && results.length === 0 && !error && biddingData.length > 0 && (
