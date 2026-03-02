@@ -150,18 +150,6 @@ export default function BidBrainPage() {
                   kTrigger={kTrigger}
                   onKTriggerChange={setKTrigger}
                 />
-                
-                <div className="p-4 rounded-xl border bg-card/40 text-xs text-muted-foreground flex items-start space-x-3 shadow-sm">
-                  <div className="p-1.5 rounded-full bg-primary/10 text-primary shrink-0">
-                    <Settings2 className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold text-foreground">Usage Guidelines</p>
-                    <p>
-                      The tool ignores the most recent (incomplete) day of data. Ensure <code>ts</code>, <code>roi_min</code>, and <code>catalog_bugdet_utilised</code> columns are present.
-                    </p>
-                  </div>
-                </div>
               </div>
             </div>
           </div>

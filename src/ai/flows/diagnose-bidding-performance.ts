@@ -55,8 +55,9 @@ DIAGNOSIS GUIDELINES:
         - Fast Budget Pacing: If ROI target is increased very fast by the Budget pacing module, it may not be able to spend aggressively. We reset the ROI target every day at the start to a lower value based on some reset logic. This doesn’t happen if the catalog roi is in 1 - 1.2 range at the end of the day as we ended up with a relatively low delivery even after budget pacing tried to get higher ROI by increasing ROI target
         - Fast ROI Pacing (protection side): Check if ROI Pacing is too fast (as delivered ROI is in denominator for the error, the error can be very high when delivered ROI is low) in increasing the ROI target, leading to a low spending on subsequent days and then switching to the ROI pacing spending module, but since clicks are low, spending doesn’t increase fast enough.
         - Incorrect Catalog ROI Window: When the ROI target is high, but we're under delivering, the ROI target will keep increasing. The problem is that the N value is too high. Even though we're over delivering in the short period (Day ROI is very high), we're not showing the same in catalog ROI because of the low clicks per day. This leads to lag in the decision making and incorrect updates to ROI target to further reduce the spending.
-    * L2 REASONING: Explain *why* the root cause occurred. For example, if click volume is low for K-trigger, determine if it was naturally low volume from the start or if clicks were suppressed by a previous aggressive BP/ROI pacing intervention that spiked the ROI Target.
+    * L2 REASONING: Explain *why* the root cause occurred in just a few words. Distinguish between natural characteristics (e.g., "Natural low volume") vs system-induced effects (e.g., "System-induced suppression").
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
+    * SEVERITY JUSTIFICATION: Must be exactly one sentence summarizing the persistency of the issue.
     * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
 
 Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data.`,
@@ -69,10 +70,10 @@ Catalog Data:
 Tasks:
 1. Confirm validity based on EOD BU% trends.
 2. Identify root cause.
-3. L2 Reason: Explain why the root cause occurred (natural volume vs system suppression).
+3. L2 Reason: Short explanation (few words) of the driver (e.g., "Natural volume" or "Aggressive suppression").
 4. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
 5. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
-6. Justify Severity at the catalog level based on persistency.
+6. Justify Severity: Exactly one sentence reasoning for severity level.
 
 Return JSON matching the schema.`,
 });

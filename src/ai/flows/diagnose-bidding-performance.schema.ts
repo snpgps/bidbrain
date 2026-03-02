@@ -67,7 +67,7 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('The primary root cause of the performance issue.'),
   l2_reason: z
     .string()
-    .describe('Secondary analysis explaining why the root cause occurred (e.g., historical low volume vs. system-induced suppression by BP/ROI pacing).'),
+    .describe('Secondary analysis explaining why the root cause occurred in a few words (e.g., "Natural low volume" or "System-induced suppression").'),
   evidence: z
     .string()
     .describe('Evidence from the data supporting the diagnosis. Use SL ROI and ROI Target terms.'),
@@ -79,7 +79,7 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('The severity of the issue.'),
   severity_justification: z
     .string()
-    .describe('Detailed reasoning for the chosen severity level at the catalog level.'),
+    .describe('A single sentence justifying the chosen severity level based on data persistency.'),
 });
 export type DiagnoseBiddingOutput = z.infer<
   typeof DiagnoseBiddingOutputSchema
