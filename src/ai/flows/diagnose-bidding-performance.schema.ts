@@ -56,11 +56,11 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('Whether the stated issue (Low BU or Low Delivery) is confirmed.'),
   root_cause: z
     .enum([
-      'Slow ROI Pacing (Low click velocity)',
-      'Fast Budget Pacing (Aggressive Target increase)',
-      'Fast ROI Pacing (Protection side)',
+      'Slow ROI Pacing',
+      'Fast Budget Pacing',
+      'Fast ROI Pacing (protection side)',
+      'Incorrect Catalog ROI Window',
       'Low click volume for K-trigger',
-      'Insufficient window size (N)',
       'Budget guardrail interference',
       'Auction limitations',
     ])
