@@ -32,59 +32,52 @@ const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
   input: { schema: LLMPromptInputSchema },
   output: { schema: DiagnoseBiddingOutputSchema },
-  system: `You are a senior Ads Bidding PM and Data Scientist. You are diagnosing a bidding control system.
+  system: `You are a senior Ads Bidding PM and Data Scientist. You are diagnosing a bidding control system that regulates performance by adjusting the **ROI Target**.
 
-CORE SYSTEM LOGIC:
-1. Bid Formula: Bid = alpha * pCVR * (AOV / SL_ROI). alpha is a pacing multiplier.
-2. Error Calculation: error = (SL_ROI - matured_ROI) / SL_ROI. 
-3. Reliability Window (N): The system uses a rolling window of N = {{{nWindow}}} clicks to calculate ROI stability. 
-4. Update Trigger (K): The system updates the bid pacing every K = {{{kTrigger}}} clicks. 
-5. Asymmetric Correction (P-values):
-   - P_down: React fast when ROI is below SL_ROI. (Current P_down = {{{pDown}}})
-   - P_up: Scale slowly when ROI is above SL_ROI. (Current P_up = {{{pUp}}})
-6. Update Rule: alpha_t = alpha_t-1 * clip(1 + P * error, 0.5, 1.5).
+CORE CONTROL LOGIC:
+1. Bid Formula: Bid = pCVR * (AOV / ROI_Target).
+2. ROI Target Dynamics:
+   - Initial ROI_Target = SL_ROI (the seller-provided floor).
+   - ROI Pacing (Scaling): When ROI_matured > SL_ROI and BU < Ideal, the system REDUCES ROI_Target to increase the bid and spending.
+   - ROI Pacing (Protection): When ROI_matured < SL_ROI, the system INCREASES ROI_Target to decrease the bid and protect margins.
+   - Budget Pacing (Control): When ROI_matured > SL_ROI and BU > Ideal, the system INCREASES ROI_Target to decrease the bid and curb over-spending.
+3. Reliability Window (N): ROI stability is calculated over a rolling window of N = {{{nWindow}}} clicks.
+4. Update Trigger (K): ROI_Target is updated every K = {{{kTrigger}}} clicks.
+5. Asymmetric Sensitivity (P-values):
+   - P_down ({{{pDown}}}): Sensitivity for INCREASING ROI_Target (reacts fast to protect ROI).
+   - P_up ({{{pUp}}}): Sensitivity for DECREASING ROI_Target (reacts slowly to scale spend).
 
 COMMUNICATION CONSTRAINTS:
-- NEVER use the term "alpha" in your evidence or reasoning.
-- ALWAYS use the terms "SL ROI" and "ROI target" to describe performance benchmarks.
-- Use "Budget Pacing" and "ROI Pacing" to describe the system's directional adjustments.
+- NEVER use the term "alpha".
+- ALWAYS use the terms "SL ROI" (the baseline) and "ROI Target" (the dynamic bid driver).
+- Use "ROI Pacing" and "Budget Pacing" to describe the directional movement of the ROI Target.
 
 DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
-    * ISSUE CONFIRMATION: Only confirm the issue if the "Catalog BU%" is low at the END OF THE DAY (the final bucket for each date). Ignore intra-day dips.
-    * RESET AWARENESS: Budget Utilization resets if a budget change occurs (check budget_change_flag). Account for this in your analysis of intra-day data.
-    * SEVERITY: Severity is "High" ONLY if end-of-day Low BU is persistent across multiple full days in the provided data.
-    * ROOT CAUSE: Check if ROI Pacing is suppressed due to "Over-aggressive ROI correction" (SL ROI >> matured ROI).
+    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets).
+    * ROOT CAUSE ANALYSIS:
+        - If ROI Target is consistently >> SL ROI: The system is likely stuck in "Protection" or "Control" mode.
+        - Check if ROI Pacing is too aggressive in increasing the Target (P_down too high) when ROI dips occur.
+        - Check if Budget Pacing is too aggressive in increasing the Target (over-reacting to spend spikes).
+        - Check if ROI Pacing is too slow in decreasing the Target (P_up too low) when ROI is over-delivering.
+    * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
+    * EVIDENCE: Quote specific instances where ROI Target increased despite ROI being healthy, or where it failed to decrease when BU was low.
 
-- For "Low Delivery Analysis":
-    * Confirm if ROI Pacing fails to scale despite matured ROI being consistently better (higher) than SL ROI.
-    * Consider if the K trigger ({{{kTrigger}}} clicks) is too sparse for the catalog's scale.
-
-Note: The data provided excludes the current ongoing day. All data buckets are from completed historical days.`,
+Note: All data provided excludes the current ongoing day.`,
   prompt: `Analysis Type: {{{analysisType}}}
-Current System Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
+Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
-Catalog Data (Historical Full Days Only):
+Catalog Data:
 {{{catalogDataJson}}}
 
 Tasks:
-1. Confirm if the issue is valid based on end-of-day BU% trends and multi-day history.
-2. Identify the root cause from the provided schema list.
-3. Provide evidence: Use SL ROI and ROI Target terms. Describe Budget Pacing trends. DO NOT mention alpha.
-4. Recommend a fix (e.g., "Decrease P_down", "Lower SL_ROI", "Increase N").
-5. Assign Severity: Low, Medium, or High.
-6. Provide a "severity_justification": Justify based on end-of-day persistency and impact.
+1. Confirm validity based on EOD BU% trends.
+2. Identify root cause (e.g., Over-aggressive ROI Target increase, Stagnant Target reduction).
+3. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
+4. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
+5. Justify Severity at the catalog level based on persistency.
 
-Return output in JSON format:
-{
-"catalog_id": "{{{catalog_id}}}",
-"issue_confirmed": true/false,
-"root_cause": "",
-"evidence": "",
-"recommendation": "",
-"severity": "",
-"severity_justification": ""
-}`,
+Return JSON matching the schema.`,
 });
 
 export async function diagnoseBiddingPerformance(
@@ -113,6 +106,7 @@ export async function diagnoseBiddingPerformance(
   const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
     const catalogRows = catalogDataMap.get(catalogId)!;
     
+    // Sort and filter current day
     const dateStrings = catalogRows.map(row => {
       const t = row.timestamp || "";
       return t.includes(' ') ? t.split(' ')[0] : t.split('T')[0];
@@ -130,10 +124,9 @@ export async function diagnoseBiddingPerformance(
       });
     }
 
-    if (filteredData.length === 0) {
-       return null;
-    }
+    if (filteredData.length === 0) return null;
 
+    // Focus on recent history for context
     const recentData = filteredData.slice(-60);
 
     try {
@@ -147,16 +140,21 @@ export async function diagnoseBiddingPerformance(
         kTrigger,
       });
 
-      if (!output) {
-        throw new Error(`AI failed to generate analysis for catalog ${catalogId}.`);
-      }
+      if (!output) return null;
 
       return { ...output, catalog_id: catalogId };
     } catch (error: any) {
-      throw new Error(`AI Error for ${catalogId}: ${error.message}`);
+      // Re-throw with context to be caught by the UI
+      throw new Error(`AI Diagnostic Error for Catalog ${catalogId}: ${error.message}`);
     }
   });
 
   const results = await Promise.all(diagnosticPromises);
-  return results.filter((res): res is DiagnoseBiddingOutput => res !== null);
+  const validResults = results.filter((res): res is DiagnoseBiddingOutput => res !== null);
+
+  if (validResults.length === 0) {
+    throw new Error("Analysis completed but no valid insights were generated. Ensure the data has enough history outside of the current day.");
+  }
+
+  return validResults;
 }
