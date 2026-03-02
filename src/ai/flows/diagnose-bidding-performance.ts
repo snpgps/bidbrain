@@ -49,13 +49,13 @@ ROI protection is the primary goal of this system.
 
 DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
-    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets). Check this for consistent under spending through the analysis period. Understand if the issue is consistent or sporadic. Say there is no problem is BU is consistently above 80% at the end of the day. Below are some possible reasons - 
+    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets). Check this for consistent under spending through the analysis period. Understand if the issue is consistent or sporadic. Say there is no problem is BU is consistently above 80% at the end of the day.
     * ROOT CAUSE ANALYSIS:
         - Slow ROI Pacing: If ROI Target is consistently high, the system is likely moving slowly through ROI pacing. It depends on the value of K clicks and if clicks are low, the module is not able to increase spending effectively.
         - Fast Budget Pacing: If ROI target is increased very fast by the Budget pacing module, it may not be able to spend aggressively. We reset the ROI target every day at the start to a lower value based on some reset logic. This doesn’t happen if the catalog roi is in 1 - 1.2 range at the end of the day as we ended up with a relatively low delivery even after budget pacing tried to get higher ROI by increasing ROI target
         - Fast ROI Pacing (protection side): Check if ROI Pacing is too fast (as delivered ROI is in denominator for the error, the error can be very high when delivered ROI is low) in increasing the ROI target, leading to a low spending on subsequent days and then switching to the ROI pacing spending module, but since clicks are low, spending doesn’t increase fast enough.
         - Incorrect Catalog ROI Window: When the ROI target is high, but we're under delivering, the ROI target will keep increasing. The problem is that the N value is too high. Even though we're over delivering in the short period (Day ROI is very high), we're not showing the same in catalog ROI because of the low clicks per day. This leads to lag in the decision making and incorrect updates to ROI target to further reduce the spending.
-        - There can be a combination of reasons leading to low BU. Your job is to identify the high level reason.
+    * L2 REASONING: Explain *why* the root cause occurred. For example, if click volume is low for K-trigger, determine if it was naturally low volume from the start or if clicks were suppressed by a previous aggressive BP/ROI pacing intervention that spiked the ROI Target.
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
 
@@ -69,9 +69,10 @@ Catalog Data:
 Tasks:
 1. Confirm validity based on EOD BU% trends.
 2. Identify root cause.
-3. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
-4. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
-5. Justify Severity at the catalog level based on persistency.
+3. L2 Reason: Explain why the root cause occurred (natural volume vs system suppression).
+4. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
+5. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
+6. Justify Severity at the catalog level based on persistency.
 
 Return JSON matching the schema.`,
 });

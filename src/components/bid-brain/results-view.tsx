@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
-import { CheckCircle2, AlertTriangle, Info, Download, ShieldAlert, BarChart3 } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Info, Download, ShieldAlert, BarChart3, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { exportResultsToCsv } from '@/lib/csv-utils';
 import { CatalogPerformanceChart } from './catalog-performance-chart';
@@ -122,6 +122,17 @@ export function ResultsView({ results, analysisType, originalData }: ResultsView
                                     {result.evidence}
                                   </p>
                                 </div>
+
+                                <div className="space-y-2">
+                                  <div className="flex items-center text-sm font-semibold text-accent">
+                                    <Search className="w-4 h-4 mr-2" />
+                                    L2 Reason (Root Cause Driver)
+                                  </div>
+                                  <p className="text-sm leading-relaxed text-foreground bg-background p-4 rounded-lg border border-accent/20">
+                                    {result.l2_reason}
+                                  </p>
+                                </div>
+
                                 <div className="space-y-2">
                                   <div className="flex items-center text-sm font-semibold text-destructive">
                                     <ShieldAlert className="w-4 h-4 mr-2" />
@@ -133,11 +144,11 @@ export function ResultsView({ results, analysisType, originalData }: ResultsView
                                 </div>
                               </div>
                               <div className="space-y-3">
-                                <div className="flex items-center text-sm font-semibold text-accent">
+                                <div className="flex items-center text-sm font-semibold text-emerald-600">
                                   <CheckCircle2 className="w-4 h-4 mr-2" />
                                   Actionable Recommendation
                                 </div>
-                                <div className="bg-background p-4 rounded-lg border border-accent/20 shadow-sm">
+                                <div className="bg-background p-4 rounded-lg border border-emerald-200 shadow-sm">
                                   <p className="text-sm leading-relaxed text-foreground font-medium">
                                     {result.recommendation}
                                   </p>

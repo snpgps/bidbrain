@@ -65,6 +65,9 @@ export const DiagnoseBiddingOutputSchema = z.object({
       'Auction limitations',
     ])
     .describe('The primary root cause of the performance issue.'),
+  l2_reason: z
+    .string()
+    .describe('Secondary analysis explaining why the root cause occurred (e.g., historical low volume vs. system-induced suppression by BP/ROI pacing).'),
   evidence: z
     .string()
     .describe('Evidence from the data supporting the diagnosis. Use SL ROI and ROI Target terms.'),
