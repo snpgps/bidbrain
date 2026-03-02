@@ -56,15 +56,13 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('Whether the stated issue (Low BU or Low Delivery) is confirmed.'),
   root_cause: z
     .enum([
-      'Over-aggressive ROI correction',
-      'Under-reaction (P too low)',
-      'Noise from high click velocity',
-      'Window size (N) too small for traffic',
-      'Daypart volatility',
-      'Delayed order maturity distortion',
+      'Slow ROI Pacing (Low click velocity)',
+      'Fast Budget Pacing (Aggressive Target increase)',
+      'Fast ROI Pacing (Protection side)',
+      'Low click volume for K-trigger',
+      'Insufficient window size (N)',
       'Budget guardrail interference',
-      'Seller SL too high',
-      'Bidding ceiling (auction limitation)',
+      'Auction limitations',
     ])
     .describe('The primary root cause of the performance issue.'),
   evidence: z
