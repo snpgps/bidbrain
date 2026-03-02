@@ -58,9 +58,7 @@ DIAGNOSIS GUIDELINES:
     * L2 REASONING: Explain *why* the root cause occurred in just a few words. Distinguish between natural characteristics (e.g., "Natural low volume") vs system-induced effects (e.g., "System-induced suppression").
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * SEVERITY JUSTIFICATION: Must be exactly one sentence summarizing the persistency of the issue.
-    * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
-
-Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data.`,
+    * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.`,
   prompt: `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
@@ -104,33 +102,17 @@ export async function diagnoseBiddingPerformance(
   const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
     const catalogRows = catalogDataMap.get(catalogId)!;
     
-    // Sort and filter current day strictly
-    const dateStrings = catalogRows.map(row => {
-      const t = row.timestamp || "";
-      return t.includes(' ') ? t.split(' ')[0] : t.split('T')[0];
-    }).filter(d => d.length > 0);
+    // Use all data provided for the catalog, sorted chronologically
+    const sortedData = [...catalogRows].sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
 
-    const uniqueDates = [...new Set(dateStrings)].sort();
-    
-    let filteredData = catalogRows;
-    if (uniqueDates.length > 0) {
-      const latestDate = uniqueDates[uniqueDates.length - 1];
-      filteredData = catalogRows.filter(row => {
-        const t = row.timestamp || "";
-        const rowDate = t.includes(' ') ? t.split(' ')[0] : t.split('T')[0];
-        return rowDate !== latestDate;
-      });
-    }
-
-    if (filteredData.length === 0) return null;
-
-    // Focus on recent history for context (up to ~3 days of buckets)
-    const recentData = filteredData.slice(-100);
+    if (sortedData.length === 0) return null;
 
     try {
       const {output} = await diagnoseBiddingPrompt({
         analysisType,
-        catalogDataJson: JSON.stringify(recentData, null, 2),
+        catalogDataJson: JSON.stringify(sortedData, null, 2),
         catalog_id: catalogId,
         pUp,
         pDown,
@@ -150,7 +132,7 @@ export async function diagnoseBiddingPerformance(
   const validResults = results.filter((res): res is DiagnoseBiddingOutput => res !== null);
 
   if (validResults.length === 0) {
-    throw new Error("Analysis completed but no valid insights were generated. Ensure the data has enough history outside of the current day.");
+    throw new Error("Analysis completed but no valid insights were generated. Ensure the data file contains valid catalogs and metrics.");
   }
 
   return validResults;
