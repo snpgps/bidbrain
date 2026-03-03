@@ -91,6 +91,8 @@ export async function fetchCsvFromUrl(url: string) {
   return parseBiddingCsv(csvText);
 }
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function diagnoseBiddingPerformance(
   input: DiagnoseBiddingInput & { fileUrl?: string; pUp?: number; pDown?: number }
 ): Promise<DiagnoseBiddingOutput[]> {
@@ -120,11 +122,15 @@ export async function diagnoseBiddingPerformance(
     catalogDataMap.get(row.catalog_id)?.push(row);
   }
 
-  const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 20);
+  // Limit batch size to prevent excessive token usage in prototype
+  const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
   const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
   const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
 
-  const diagnosticPromises = catalogIds.map(async (catalogId) => {
+  const validResults: DiagnoseBiddingOutput[] = [];
+
+  // SEQUENTIAL PROCESSING: To avoid 429 RESOURCE_EXHAUSTED errors
+  for (const catalogId of catalogIds) {
     const catalogRows = catalogDataMap.get(catalogId)!;
     const sortedData = [...catalogRows].sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -141,18 +147,23 @@ export async function diagnoseBiddingPerformance(
         kTrigger,
       });
 
-      if (!output) return null;
-      return { ...output, catalog_id: catalogId };
+      if (output) {
+        validResults.push({ ...output, catalog_id: catalogId });
+      }
+      
+      // Small 200ms pause to stagger requests and stay within RPM limits
+      await delay(200);
     } catch (error: any) {
-      throw new Error(`AI Diagnostic Error for Catalog ${catalogId}: ${error.message}`);
+      console.error(`AI Diagnostic Error for Catalog ${catalogId}:`, error.message);
+      // We continue to next catalog instead of failing the whole batch
+      if (error.message.includes('429') || error.message.includes('QUOTA')) {
+        throw new Error(`AI Quota reached. Please retry in a few seconds. Failed at Catalog ${catalogId}`);
+      }
     }
-  });
-
-  const results = await Promise.all(diagnosticPromises);
-  const validResults = results.filter((res): res is DiagnoseBiddingOutput => res !== null);
+  }
 
   if (validResults.length === 0) {
-    throw new Error("Analysis completed but no valid insights were generated.");
+    throw new Error("Analysis completed but no valid insights were generated. Please check your data quality.");
   }
 
   return validResults;
