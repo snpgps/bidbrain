@@ -108,13 +108,14 @@ export async function diagnoseBiddingPerformance(
   
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
   for (const row of biddingData) {
+    if (!row.catalog_id) continue;
     if (!catalogDataMap.has(row.catalog_id)) {
       catalogDataMap.set(row.catalog_id, []);
     }
     catalogDataMap.get(row.catalog_id)?.push(row);
   }
 
-  const catalogIds = Array.from(catalogDataMap.keys());
+  const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
   const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
   const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
 
@@ -126,19 +127,42 @@ export async function diagnoseBiddingPerformance(
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
-    const {output} = await diagnoseBiddingPrompt({
-      analysisType,
-      catalogDataJson: JSON.stringify(sortedData, null, 2),
-      catalog_id: catalogId,
-      pUp,
-      pDown,
-      nWindow,
-      kTrigger,
-    });
+    // AI Call with internal retry logic
+    let retryCount = 0;
+    let success = false;
+    
+    while (retryCount < 2 && !success) {
+      try {
+        const {output} = await diagnoseBiddingPrompt({
+          analysisType,
+          catalogDataJson: JSON.stringify(sortedData, null, 2),
+          catalog_id: catalogId,
+          pUp,
+          pDown,
+          nWindow,
+          kTrigger,
+        });
 
-    if (output) {
-      validResults.push({ ...output, catalog_id: catalogId });
+        if (output) {
+          validResults.push({ ...output, catalog_id: catalogId });
+          success = true;
+        }
+      } catch (err: any) {
+        if (err.message.includes('429') || err.message.includes('Quota')) {
+          retryCount++;
+          if (retryCount < 2) {
+            // Wait with exponential backoff on backend
+            await new Promise(r => setTimeout(r, 4000));
+          }
+        } else {
+          // Other errors, skip catalog
+          break;
+        }
+      }
     }
+    
+    // Safety delay to prevent hitting RPM limits immediately
+    await new Promise(r => setTimeout(r, 1000));
   }
 
   return validResults;

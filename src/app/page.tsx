@@ -75,29 +75,6 @@ export default function BidBrainPage() {
     await signOut(auth);
   };
 
-  const runCatalogDiagnostic = async (catalogId: string, rows: any[], retryCount = 0): Promise<DiagnoseBiddingOutput | null> => {
-    try {
-      const diagnosticResult = await diagnoseBiddingPerformance({
-        analysisType,
-        biddingData: rows,
-        nWindow,
-        kTrigger,
-        pUp,
-        pDown
-      });
-      return diagnosticResult && diagnosticResult.length > 0 ? diagnosticResult[0] : null;
-    } catch (err: any) {
-      // Handle Quota Limit (429) with exponential backoff
-      if ((err.message.includes('429') || err.message.includes('Quota')) && retryCount < 2) {
-        const waitTime = (retryCount + 1) * 3000;
-        addLog(`Quota hit for ${catalogId}. Cooling down for ${waitTime/1000}s (Retry ${retryCount + 1}/2)...`, 'warning');
-        await new Promise(r => setTimeout(r, waitTime));
-        return runCatalogDiagnostic(catalogId, rows, retryCount + 1);
-      }
-      throw err;
-    }
-  };
-
   const handleRunAnalysis = async () => {
     if ((!selectedFile && biddingData.length === 0) || !db || !storage) return;
 
@@ -116,7 +93,7 @@ export default function BidBrainPage() {
         const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
         const uploadResult = await uploadBytes(storageRef, selectedFile);
         fileUrl = await getDownloadURL(uploadResult.ref);
-        addLog(`File uploaded successfully to Storage.`, 'success');
+        addLog(`File uploaded successfully.`, 'success');
       }
 
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
@@ -143,60 +120,42 @@ export default function BidBrainPage() {
       });
       addLog(`Session record created in Firestore.`, 'success');
 
-      const catalogDataMap = new Map<string, any[]>();
-      for (const row of biddingData) {
-        if (!catalogDataMap.has(row.catalog_id)) {
-          catalogDataMap.set(row.catalog_id, []);
-        }
-        catalogDataMap.get(row.catalog_id)?.push(row);
-      }
+      addLog(`Handoff to Backend: Analyzing catalogs in robust batch...`, 'info');
+      addLog(`(This may take 1-2 minutes for deep AI diagnostics)`, 'warning');
 
-      const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
-      addLog(`Found ${catalogIds.length} unique catalogs. Starting robust sequential analysis...`, 'info');
+      const batchResults = await diagnoseBiddingPerformance({
+        analysisType,
+        biddingData: biddingData.length > 0 ? biddingData : [],
+        fileUrl: fileUrl,
+        nWindow,
+        kTrigger,
+        pUp,
+        pDown
+      });
 
-      const accumulatedResults: DiagnoseBiddingOutput[] = [];
+      if (batchResults && batchResults.length > 0) {
+        setResults(batchResults);
+        addLog(`Successfully analyzed ${batchResults.length} catalogs on the backend.`, 'success');
 
-      for (const [index, catalogId] of catalogIds.entries()) {
-        addLog(`[${index + 1}/${catalogIds.length}] Analyzing Catalog: ${catalogId}...`, 'info');
-        
-        try {
-          const catalogRows = catalogDataMap.get(catalogId)!;
-          const result = await runCatalogDiagnostic(catalogId, catalogRows);
-
-          if (result) {
-            accumulatedResults.push(result);
-            setResults(prev => [...prev, result]);
-
-            const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
-            const resData = { ...result, timestamp: new Date().toISOString() };
-            
-            setDoc(resRef, resData).catch(async () => {
-              errorEmitter.emit('permission-error', new FirestorePermissionError({
-                path: resRef.path,
-                operation: 'create',
-                requestResourceData: resData,
-              }));
-            });
-
-            addLog(`Success: Results stored for Catalog ${catalogId}.`, 'success');
-          }
-        } catch (err: any) {
-          if (err.message.includes('429') || err.message.includes('Quota')) {
-            addLog(`FATAL: Quota Limit persists. Saving progress and stopping.`, 'error');
-            setError(`AI Quota reached. Results for ${accumulatedResults.length} catalogs were saved.`);
-            break;
-          } else {
-            addLog(`Error analyzing ${catalogId}: ${err.message}`, 'error');
-          }
+        addLog(`Persisting batch results to Firestore...`, 'info');
+        for (const res of batchResults) {
+          const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', res.catalog_id);
+          const resData = { ...res, timestamp: new Date().toISOString() };
+          
+          setDoc(resRef, resData).catch(async () => {
+            errorEmitter.emit('permission-error', new FirestorePermissionError({
+              path: resRef.path,
+              operation: 'create',
+              requestResourceData: resData,
+            }));
+          });
         }
         
-        // Safety delay between successful calls to avoid spiking RPM
-        await new Promise(r => setTimeout(r, 1000));
+        setDoc(sessionRef, { status: 'completed' }, { merge: true });
+        addLog(`Session completed. All diagnostics stored.`, 'success');
+      } else {
+        throw new Error("No results were generated. AI engine might have hit a fatal quota or timeout.");
       }
-
-      const finalStatus = accumulatedResults.length > 0 ? 'completed' : 'failed';
-      setDoc(sessionRef, { status: finalStatus }, { merge: true });
-      addLog(`Session ${finalStatus}. Diagnostics complete.`, finalStatus === 'completed' ? 'success' : 'error');
 
     } catch (err: any) {
       console.error("Diagnostic Run Error:", err);
@@ -337,8 +296,8 @@ export default function BidBrainPage() {
                   </div>
                 </div>
                 <div className="text-center space-y-1">
-                  <p className="font-bold text-xl font-headline text-primary">Processing Diagnostic Session</p>
-                  <p className="text-sm text-muted-foreground">Analyzing catalogs with robust rate-limiting and retry logic...</p>
+                  <p className="font-bold text-xl font-headline text-primary">Backend Batch Processing</p>
+                  <p className="text-sm text-muted-foreground">AI is analyzing catalogs with internal retry logic...</p>
                 </div>
               </div>
               
