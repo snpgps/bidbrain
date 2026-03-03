@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2 } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
@@ -10,8 +10,13 @@ import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.s
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { useFirestore, useUser } from '@/firebase';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function BidBrainPage() {
+  const db = useFirestore();
+  const { user } = useUser();
+  
   const [biddingData, setBiddingData] = useState<any[]>([]);
   const [analysisType, setAnalysisType] = useState<'Low BU Analysis' | 'Low Delivery Analysis'>('Low BU Analysis');
   const [pUp, setPUp] = useState<number>(0.1);
@@ -21,16 +26,35 @@ export default function BidBrainPage() {
   const [results, setResults] = useState<DiagnoseBiddingOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const handleRunAnalysis = async () => {
-    if (biddingData.length === 0) return;
+    if (biddingData.length === 0 || !db) return;
 
     setIsLoading(true);
     setResults([]);
     setError(null);
 
+    // Create a unique session ID
+    const newSessionId = crypto.randomUUID();
+    setSessionId(newSessionId);
+
     try {
-      // Inject the manual p_up and p_down constants into each data row
+      // 1. Create session record in Firestore
+      const sessionRef = doc(db, 'analysis_sessions', newSessionId);
+      setDoc(sessionRef, {
+        id: newSessionId,
+        status: 'processing',
+        createdAt: serverTimestamp(),
+        analysisType,
+        pUp,
+        pDown,
+        nWindow,
+        kTrigger,
+        userId: user?.uid || 'anonymous'
+      });
+
+      // 2. Run Analysis
       const enrichedData = biddingData.map(row => ({
         ...row,
         p_up: pUp,
@@ -45,13 +69,29 @@ export default function BidBrainPage() {
       });
       
       if (!diagnosticResults || diagnosticResults.length === 0) {
-        throw new Error("The AI returned no analysis results. This might happen if the data for the selected period is insufficient or the AI could not confirm any issues.");
+        throw new Error("No issues were confirmed in the uploaded data.");
       }
+
+      // 3. Store results in Firestore subcollection
+      diagnosticResults.forEach((res) => {
+        const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', res.catalog_id);
+        setDoc(resRef, {
+          ...res,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+      // 4. Update session status
+      setDoc(sessionRef, { status: 'completed' }, { merge: true });
 
       setResults(diagnosticResults);
     } catch (err: any) {
       console.error("Diagnostic Run Error:", err);
       setError(err.message || "An unexpected error occurred during AI diagnostics.");
+      if (db) {
+        const sessionRef = doc(db, 'analysis_sessions', newSessionId);
+        setDoc(sessionRef, { status: 'failed' }, { merge: true });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -59,7 +99,6 @@ export default function BidBrainPage() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
       <header className="border-b bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -70,21 +109,21 @@ export default function BidBrainPage() {
               BidBrain <span className="text-foreground">Analyzer</span>
             </h1>
           </div>
-          <div className="flex items-center space-x-4 text-sm font-medium text-muted-foreground">
-            <div className="flex items-center space-x-1">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" size="sm" className="text-muted-foreground hidden sm:flex">
+              <History className="w-4 h-4 mr-2" />
+              History
+            </Button>
+            <div className="h-4 w-px bg-border hidden sm:block"></div>
+            <div className="flex items-center space-x-2 text-sm font-medium text-muted-foreground">
               <Database className="w-4 h-4" />
-              <span>CSV Data</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Local Privacy</span>
+              <span className="hidden md:inline">Processing via Storage</span>
             </div>
           </div>
         </div>
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8 max-w-5xl">
-        {/* Intro Section */}
         <section className="space-y-4">
           <div className="inline-flex items-center px-3 py-1 rounded-full bg-accent/10 text-accent text-xs font-bold uppercase tracking-wider">
             Bidding Performance Engine
@@ -94,14 +133,13 @@ export default function BidBrainPage() {
               Diagnostic Bidding Agent
             </h2>
             <p className="text-muted-foreground max-w-2xl text-lg">
-              Analyze catalog-level performance using AI to pinpoint bidding inefficiencies and parameter drifts.
+              Upload catalog data for deep AI analysis and persistent tracking in Firestore.
             </p>
           </div>
         </section>
 
-        {/* Error Display */}
         {error && (
-          <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 animate-in fade-in slide-in-from-top-2">
+          <Alert variant="destructive" className="bg-destructive/5 border-destructive/20">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle className="font-bold">Analysis Failed</AlertTitle>
             <AlertDescription className="space-y-3">
@@ -118,7 +156,6 @@ export default function BidBrainPage() {
           </Alert>
         )}
 
-        {/* Upload & Controls */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-12">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -155,19 +192,18 @@ export default function BidBrainPage() {
           </div>
         </section>
 
-        {/* Results */}
         <section className="space-y-6 pt-4">
           {isLoading && (
             <div className="flex flex-col items-center justify-center py-20 space-y-4 animate-in fade-in zoom-in-95 duration-300 bg-card rounded-2xl border border-border shadow-sm">
               <div className="relative">
                 <BarChart3 className="w-12 h-12 text-primary/20 animate-pulse" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                  <Loader2 className="w-6 h-6 text-primary animate-spin" />
                 </div>
               </div>
               <div className="text-center space-y-1">
-                <p className="font-bold text-xl font-headline text-primary">AI Diagnostic in Progress</p>
-                <p className="text-sm text-muted-foreground">This may take up to 30 seconds depending on the data volume.</p>
+                <p className="font-bold text-xl font-headline text-primary">Diagnosing {biddingData.length} Data Points</p>
+                <p className="text-sm text-muted-foreground">Persisting session results to Firestore...</p>
               </div>
             </div>
           )}
@@ -180,11 +216,12 @@ export default function BidBrainPage() {
             />
           )}
 
-          {!isLoading && results.length === 0 && !error && biddingData.length > 0 && (
+          {!isLoading && results.length === 0 && !error && (
             <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20">
               <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
-              <p className="text-muted-foreground font-medium text-lg">Ready to diagnose {biddingData.length} data points.</p>
-              <p className="text-sm text-muted-foreground/60 mt-1">Configure your parameters and click "Run Diagnostics".</p>
+              <p className="text-muted-foreground font-medium text-lg">
+                {biddingData.length > 0 ? `Ready to analyze session` : 'Upload a CSV to begin analysis'}
+              </p>
             </div>
           )}
         </section>

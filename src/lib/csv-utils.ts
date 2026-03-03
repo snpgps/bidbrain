@@ -1,6 +1,7 @@
+
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 
-export const REQUIRED_COLUMNS = [
+export const CORE_COLUMNS = [
   'catalog_id',
   'ts',
   'catalog_roi',
@@ -20,26 +21,26 @@ export function parseBiddingCsv(csvText: string): any[] {
   if (lines.length < 2) return [];
 
   const headers = lines[0].split(',').map((h) => h.trim());
-  const missing = REQUIRED_COLUMNS.filter((col) => !headers.includes(col));
+  const missing = CORE_COLUMNS.filter((col) => !headers.includes(col));
 
   if (missing.length > 0) {
-    throw new Error(`Missing required columns: ${missing.join(', ')}`);
+    throw new Error(`Missing core columns: ${missing.join(', ')}`);
   }
 
   const results = [];
   for (let i = 1; i < lines.length; i++) {
     const values = lines[i].split(',').map((v) => v.trim());
+    if (values.length < headers.length) continue;
+
     const row: any = {};
     headers.forEach((header, index) => {
       const val = values[index];
       
-      // Map incoming CSV headers to schema keys
       let schemaKey = header;
       if (header === 'ts') schemaKey = 'timestamp';
       if (header === 'roi_min') schemaKey = 'sl_roi';
       if (header === 'catalog_bugdet_utilised') schemaKey = 'spend';
 
-      // Convert numeric fields if they are standard ones
       const numericFields = [
         'catalog_roi',
         'roi_target',
@@ -53,17 +54,11 @@ export function parseBiddingCsv(csvText: string): any[] {
         'spend',
         'catalog_bugdet_utilised',
         'alpha',
-        'p_up',
-        'p_down',
-        'n_window',
       ];
 
       if (numericFields.includes(schemaKey)) {
         row[schemaKey] = parseFloat(val) || 0;
-      } else if (['budget_change_flag', 'sl_change_flag', 'k_trigger_flag'].includes(schemaKey)) {
-        row[schemaKey] = val.toLowerCase() === 'true';
       } else {
-        // Keep all other columns as they are (strings, flags, etc.)
         row[schemaKey] = val;
       }
     });

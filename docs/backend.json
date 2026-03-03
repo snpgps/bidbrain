@@ -1,0 +1,49 @@
+
+{
+  "entities": {
+    "AnalysisSession": {
+      "title": "Analysis Session",
+      "description": "Represents a single diagnostic run of a bidding data file.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fileName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "fileUrl": { "type": "string" },
+        "analysisType": { "type": "string" }
+      },
+      "required": ["id", "fileName", "status", "createdAt"]
+    },
+    "AnalysisResult": {
+      "title": "Analysis Result",
+      "description": "The AI-generated diagnostic for a specific catalog within a session.",
+      "type": "object",
+      "properties": {
+        "catalog_id": { "type": "string" },
+        "issue_confirmed": { "type": "boolean" },
+        "root_cause": { "type": "string" },
+        "l2_reason": { "type": "string" },
+        "evidence": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "severity": { "type": "string" },
+        "severity_justification": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["catalog_id", "root_cause", "severity"]
+    }
+  },
+  "auth": {
+    "providers": ["google.com"]
+  },
+  "firestore": {
+    "/analysis_sessions/{sessionId}": {
+      "schema": "AnalysisSession",
+      "description": "Metadata for an analysis run."
+    },
+    "/analysis_sessions/{sessionId}/results/{catalogId}": {
+      "schema": "AnalysisResult",
+      "description": "Individual catalog diagnostics for the session."
+    }
+  }
+}
