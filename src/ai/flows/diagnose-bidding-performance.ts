@@ -55,10 +55,13 @@ DIAGNOSIS GUIDELINES:
         - Fast Budget Pacing: If ROI target is increased very fast by the Budget pacing module, it may not be able to spend aggressively. We reset the ROI target every day at the start to a lower value based on some reset logic. This doesn’t happen if the catalog roi is in 1 - 1.2 range at the end of the day as we ended up with a relatively low delivery even after budget pacing tried to get higher ROI by increasing ROI target
         - Fast ROI Pacing (protection side): Check if ROI Pacing is too fast (as delivered ROI is in denominator for the error, the error can be very high when delivered ROI is low) in increasing the ROI target, leading to a low spending on subsequent days and then switching to the ROI pacing spending module, but since clicks are low, spending doesn’t increase fast enough.
         - Incorrect Catalog ROI Window: When the ROI target is high, but we're under delivering, the ROI target will keep increasing. The problem is that the N value is too high. Even though we're over delivering in the short period (Day ROI is very high), we're not showing the same in catalog ROI because of the low clicks per day. This leads to lag in the decision making and incorrect updates to ROI target to further reduce the spending.
-    * L2 REASONING: Explain *why* the root cause occurred in just a few words. Distinguish between natural characteristics (e.g., "Natural low volume") vs system-induced effects (e.g., "System-induced suppression").
+        - Catalog/Campaign Status: If most of the time, a catalog or campaign is paused, the catalog will not be able to spend any money as it’s not bidding.
+    * L2 REASONING: Identify the reason causing the L1 issue in just a few words. Distinguish between natural characteristics vs system-induced effects. Example: "Slow ROI pacing due to high ROI target" (L1) could be caused by "Fast ROI pacing earlier" (L2).
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * SEVERITY JUSTIFICATION: Must be exactly one sentence summarizing the persistency of the issue.
-    * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.`,
+    * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
+
+Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data`,
   prompt: `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
@@ -85,8 +88,16 @@ export async function diagnoseBiddingPerformance(
     throw new Error("No bidding data provided for analysis.");
   }
 
+  // Filter out current day (incomplete data)
+  const today = new Date().toISOString().split('T')[0];
+  const historicalData = biddingData.filter(row => !row.timestamp.startsWith(today));
+
+  if (historicalData.length === 0) {
+    throw new Error("No complete historical days found in data. Diagnostics require at least one full day of history.");
+  }
+
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
-  for (const row of biddingData) {
+  for (const row of historicalData) {
     if (!catalogDataMap.has(row.catalog_id)) {
       catalogDataMap.set(row.catalog_id, []);
     }
@@ -102,12 +113,10 @@ export async function diagnoseBiddingPerformance(
   const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
     const catalogRows = catalogDataMap.get(catalogId)!;
     
-    // Use all data provided for the catalog, sorted chronologically
+    // Sort chronologically for AI trend analysis
     const sortedData = [...catalogRows].sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
-
-    if (sortedData.length === 0) return null;
 
     try {
       const {output} = await diagnoseBiddingPrompt({

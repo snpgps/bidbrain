@@ -15,7 +15,7 @@ export const BiddingDataRowSchema = z.object({
   day_roi: z.number().describe('Daily ROI.'),
   spend: z.number().describe('Spend for the catalog.'),
   alpha: z.number().describe('Alpha parameter.'),
-}).catchall(z.any()); // Allow any additional columns from the CSV
+}).catchall(z.any()); // Allow any additional columns from the CSV (status, updates, etc.)
 
 export const AnalysisTypeSchema = z
   .union([
@@ -48,6 +48,7 @@ export const DiagnoseBiddingOutputSchema = z.object({
       'Low click volume for K-trigger',
       'Budget guardrail interference',
       'Auction limitations',
+      'Campaign status issues',
     ])
     .describe('The primary root cause of the performance issue.'),
   l2_reason: z
