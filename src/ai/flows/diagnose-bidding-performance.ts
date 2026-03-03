@@ -106,6 +106,7 @@ export async function diagnoseBiddingPerformance(
 
   const {analysisType, nWindow = 1800, kTrigger = 360} = input;
   
+  // Group data by catalog ID
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
   for (const row of biddingData) {
     if (!row.catalog_id) continue;
@@ -115,12 +116,14 @@ export async function diagnoseBiddingPerformance(
     catalogDataMap.get(row.catalog_id)?.push(row);
   }
 
+  // Take a representative sample to avoid extreme batch durations
   const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
   const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
   const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
 
   const validResults: DiagnoseBiddingOutput[] = [];
 
+  // SEQUENTIAL PROCESSING ON BACKEND
   for (const catalogId of catalogIds) {
     const catalogRows = catalogDataMap.get(catalogId)!;
     const sortedData = [...catalogRows].sort((a, b) => 
