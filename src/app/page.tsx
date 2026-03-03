@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
@@ -160,17 +161,21 @@ export default function BidBrainPage() {
       <header className="border-b bg-white shadow-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
-              <Brain className="w-5 h-5" />
-            </div>
-            <h1 className="text-xl font-bold font-headline tracking-tight text-primary">
-              BidBrain <span className="text-foreground">Analyzer</span>
-            </h1>
+            <Link href="/" className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
+                <Brain className="w-5 h-5" />
+              </div>
+              <h1 className="text-xl font-bold font-headline tracking-tight text-primary">
+                BidBrain <span className="text-foreground">Analyzer</span>
+              </h1>
+            </Link>
           </div>
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" className="text-muted-foreground hidden sm:flex">
-              <History className="w-4 h-4 mr-2" />
-              History
+            <Button variant="ghost" size="sm" asChild className="text-muted-foreground hidden sm:flex">
+              <Link href="/history">
+                <History className="w-4 h-4 mr-2" />
+                History
+              </Link>
             </Button>
             <div className="h-4 w-px bg-border hidden sm:block"></div>
             
@@ -289,7 +294,7 @@ export default function BidBrainPage() {
             <ResultsView 
               results={results} 
               analysisType={analysisType} 
-              originalData={biddingData}
+              originalData={selectedFile ? biddingData : biddingData}
             />
           )}
 
