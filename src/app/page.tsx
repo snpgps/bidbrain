@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2 } from 'lucide-react';
+import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
@@ -10,15 +10,18 @@ import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.s
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { useFirestore, useUser, useStorage } from '@/firebase';
+import { useFirestore, useUser, useStorage, useAuth } from '@/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
+import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 export default function BidBrainPage() {
   const db = useFirestore();
   const storage = useStorage();
+  const auth = useAuth();
   const { user } = useUser();
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -32,6 +35,21 @@ export default function BidBrainPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    if (!auth) return;
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      setError("Failed to sign in: " + err.message);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (!auth) return;
+    await signOut(auth);
+  };
 
   const handleRunAnalysis = async () => {
     if ((!selectedFile && biddingData.length === 0) || !db || !storage) return;
@@ -82,7 +100,7 @@ export default function BidBrainPage() {
       // 3. Run Analysis
       const diagnosticResults = await diagnoseBiddingPerformance({
         analysisType,
-        biddingData: selectedFile ? [] : biddingData, // If file is in storage, pass empty array
+        biddingData: selectedFile ? [] : biddingData,
         fileUrl: fileUrl,
         pUp,
         pDown,
@@ -155,10 +173,27 @@ export default function BidBrainPage() {
               History
             </Button>
             <div className="h-4 w-px bg-border hidden sm:block"></div>
-            <div className="flex items-center space-x-2 text-sm font-medium text-muted-foreground">
-              <Database className="w-4 h-4" />
-              <span className="hidden md:inline">Persistent Storage</span>
-            </div>
+            
+            {user ? (
+              <div className="flex items-center space-x-3">
+                <div className="hidden md:block text-right">
+                  <p className="text-xs font-bold text-foreground leading-none">{user.displayName}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Active Session</p>
+                </div>
+                <Avatar className="h-8 w-8 border">
+                  <AvatarImage src={user.photoURL || ''} />
+                  <AvatarFallback><UserIcon className="w-4 h-4" /></AvatarFallback>
+                </Avatar>
+                <Button variant="outline" size="icon" onClick={handleSignOut} className="h-8 w-8 text-muted-foreground hover:text-destructive">
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" onClick={handleSignIn} className="font-bold">
+                <LogIn className="w-4 h-4 mr-2" />
+                Sign In
+              </Button>
+            )}
           </div>
         </div>
       </header>
