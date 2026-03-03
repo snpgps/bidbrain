@@ -1,0 +1,15 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /analysis_sessions/{sessionId} {
+      // Allow authenticated users to create and manage their own sessions
+      allow read, write: if request.auth != null;
+
+      match /results/{catalogId} {
+        // Allow access to results if the user is authenticated
+        allow read, write: if request.auth != null;
+      }
+    }
+  }
+}

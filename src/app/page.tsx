@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { useFirestore, useUser, useStorage } from '@/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
 export default function BidBrainPage() {
   const db = useFirestore();
@@ -53,7 +55,7 @@ export default function BidBrainPage() {
 
       // 2. Create session record in Firestore
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
-      setDoc(sessionRef, {
+      const sessionData = {
         id: newSessionId,
         fileName: selectedFile?.name || 'Manual Paste',
         status: 'processing',
@@ -65,7 +67,17 @@ export default function BidBrainPage() {
         nWindow,
         kTrigger,
         userId: user?.uid || 'anonymous'
-      });
+      };
+
+      setDoc(sessionRef, sessionData)
+        .catch(async (serverError) => {
+          const permissionError = new FirestorePermissionError({
+            path: sessionRef.path,
+            operation: 'create',
+            requestResourceData: sessionData,
+          } satisfies SecurityRuleContext);
+          errorEmitter.emit('permission-error', permissionError);
+        });
 
       // 3. Run Analysis
       const diagnosticResults = await diagnoseBiddingPerformance({
@@ -85,14 +97,32 @@ export default function BidBrainPage() {
       // 4. Store results in Firestore subcollection
       diagnosticResults.forEach((res) => {
         const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', res.catalog_id);
-        setDoc(resRef, {
+        const resData = {
           ...res,
           timestamp: new Date().toISOString()
-        });
+        };
+        
+        setDoc(resRef, resData)
+          .catch(async (serverError) => {
+            const permissionError = new FirestorePermissionError({
+              path: resRef.path,
+              operation: 'create',
+              requestResourceData: resData,
+            } satisfies SecurityRuleContext);
+            errorEmitter.emit('permission-error', permissionError);
+          });
       });
 
       // 5. Update session status
-      setDoc(sessionRef, { status: 'completed' }, { merge: true });
+      setDoc(sessionRef, { status: 'completed' }, { merge: true })
+        .catch(async (serverError) => {
+          const permissionError = new FirestorePermissionError({
+            path: sessionRef.path,
+            operation: 'update',
+            requestResourceData: { status: 'completed' },
+          } satisfies SecurityRuleContext);
+          errorEmitter.emit('permission-error', permissionError);
+        });
 
       setResults(diagnosticResults);
     } catch (err: any) {
