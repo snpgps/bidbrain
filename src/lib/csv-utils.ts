@@ -39,30 +39,31 @@ export function parseBiddingCsv(csvText: string): any[] {
       if (header === 'roi_min') schemaKey = 'sl_roi';
       if (header === 'catalog_bugdet_utilised') schemaKey = 'spend';
 
-      // Convert numeric fields
-      if (
-        [
-          'catalog_roi',
-          'roi_target',
-          'sl_roi', // mapped from roi_min
-          'roi_min', // incoming
-          'catalog_clicks',
-          'catalog_gmv',
-          'catalog_bu_perc',
-          'bu_ideal',
-          'day_roi',
-          'spend', // mapped from catalog_bugdet_utilised
-          'catalog_bugdet_utilised', // incoming
-          'alpha',
-          'p_up',
-          'p_down',
-          'n_window',
-        ].includes(schemaKey)
-      ) {
+      // Convert numeric fields if they are standard ones
+      const numericFields = [
+        'catalog_roi',
+        'roi_target',
+        'sl_roi',
+        'roi_min',
+        'catalog_clicks',
+        'catalog_gmv',
+        'catalog_bu_perc',
+        'bu_ideal',
+        'day_roi',
+        'spend',
+        'catalog_bugdet_utilised',
+        'alpha',
+        'p_up',
+        'p_down',
+        'n_window',
+      ];
+
+      if (numericFields.includes(schemaKey)) {
         row[schemaKey] = parseFloat(val) || 0;
       } else if (['budget_change_flag', 'sl_change_flag', 'k_trigger_flag'].includes(schemaKey)) {
         row[schemaKey] = val.toLowerCase() === 'true';
       } else {
+        // Keep all other columns as they are (strings, flags, etc.)
         row[schemaKey] = val;
       }
     });
@@ -74,7 +75,7 @@ export function parseBiddingCsv(csvText: string): any[] {
 export function exportResultsToCsv(results: any[], analysisType: string) {
   if (results.length === 0) return;
 
-  const headers = ['catalog_id', 'issue_type', 'issue_confirmed', 'root_cause', 'severity', 'evidence', 'recommendation'];
+  const headers = ['catalog_id', 'issue_type', 'issue_confirmed', 'root_cause', 'severity', 'evidence', 'l2_reason', 'severity_justification', 'recommendation'];
   const csvRows = [headers.join(',')];
 
   results.forEach((res) => {
@@ -85,6 +86,8 @@ export function exportResultsToCsv(results: any[], analysisType: string) {
       `"${res.root_cause.replace(/"/g, '""')}"`,
       res.severity,
       `"${res.evidence.replace(/"/g, '""')}"`,
+      `"${res.l2_reason.replace(/"/g, '""')}"`,
+      `"${res.severity_justification.replace(/"/g, '""')}"`,
       `"${res.recommendation.replace(/"/g, '""')}"`,
     ];
     csvRows.push(row.join(','));

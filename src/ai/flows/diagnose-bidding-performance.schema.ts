@@ -15,22 +15,7 @@ export const BiddingDataRowSchema = z.object({
   day_roi: z.number().describe('Daily ROI.'),
   spend: z.number().describe('Spend for the catalog.'),
   alpha: z.number().describe('Alpha parameter.'),
-  p_up: z.number().describe('P_up parameter.'),
-  p_down: z.number().describe('P_down parameter.'),
-  budget_change_flag: z
-    .boolean()
-    .optional()
-    .describe('Flag indicating budget change.'),
-  sl_change_flag: z
-    .boolean()
-    .optional()
-    .describe('Flag indicating stop-loss change.'),
-  n_window: z.number().optional().describe('Window size N.'),
-  k_trigger_flag: z
-    .boolean()
-    .optional()
-    .describe('Flag indicating K trigger.'),
-});
+}).catchall(z.any()); // Allow any additional columns from the CSV
 
 export const AnalysisTypeSchema = z
   .union([
