@@ -63,6 +63,7 @@ DIAGNOSIS GUIDELINES:
               b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small for the volatility, leading to "false" protection triggers.
         - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
         - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
+        - Outlier days: Spends behaved differently than they usually do because of sale or any other click mix change reason, leading to low ROI on the day. This leads to a drop in Catalog ROI, leading to an increase in ROI target over multiple days. A high ROI target can also result in low clicks and low ROI as we’re not exploring enough. This in turn puts the catalog in a low clicks and low ROI loop.
     * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
