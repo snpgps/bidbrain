@@ -40,7 +40,7 @@ CORE CONTROL LOGIC:
 1. Bid Formula: Bid = pCVR * (AOV / ROI_Target).
 2. ROI Target Dynamics:
    - ROI Pacing to increase spending: When Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target.
-   - ROI Pacing to protect delivery: When Catalog_ROI < SL_ROI, INCREASE ROI_Target.
+   - ROI Pacing to protect delivery (Protection Side): When Catalog_ROI < SL_ROI, INCREASE ROI_Target to protect margins.
    - Budget Pacing to reduce spending: When Catalog_ROI > SL_ROI and BU > BU Ideal, INCREASE ROI_Target.
 3. Reliability Window (N): ROI stability for Catalog_ROI is calculated over N = {{{nWindow}}} clicks.
 4. Update Trigger (K): ROI_Target is updated every K = {{{kTrigger}}} clicks.
@@ -48,26 +48,24 @@ CORE CONTROL LOGIC:
 
 MULTI-CAMPAIGN & CLICK VOLUME ANALYSIS:
 - A single Catalog ID may be part of multiple campaigns running SEQUENTIALLY.
-- **CRITICAL**: You MUST sum up clicks across ALL campaigns for the catalog to determine the total daily volume.
-- Check the final daily buckets to see total cumulative clicks for the catalog.
-- **DO NOT** diagnose "low click volume" if the aggregate catalog clicks for the day meet or exceed the K-trigger ({{{kTrigger}}}).
-- If daily clicks are high (e.g., >2*K), "Slow ROI Pacing" cannot be blamed on volume; look for system-induced suppression or parameter lag instead.
+- **CRITICAL**: You MUST sum up clicks across ALL campaigns for the catalog to determine total daily volume.
+- **DO NOT** diagnose "low click volume" if the AGGREGATE catalog clicks for the day meet or exceed the K-trigger ({{{kTrigger}}}).
 
 DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
-    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is consistently low at the END OF THE DAY (summing spend across campaigns). Say there is no problem if aggregate BU is consistently above 80% at EOD.
-    * ROOT CAUSES:
-        - Slow ROI Pacing: ROI Target is high and moving slowly. Only blame "low click volume" if the AGGREGATE daily clicks are below K. If clicks are high, investigate if P_up is too small or if previous day suppression is the cause.
-        - Fast Budget Pacing: ROI target increased too rapidly. Note: System resets ROI target daily unless Catalog ROI was in 1-1.2 range at EOD.
-        - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period, leading to suppressed spending.
-        - Incorrect Catalog ROI Window: Large N causes lag. Day ROI might be high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
-        - Catalog/Campaign Status: Check if "status" columns show "paused" or "inactive".
-    * L1 vs L2 REASONING:
-        - L1 (What): The technical mechanism (e.g., "Slow ROI Pacing").
-        - L2 (Why): The underlying driver. MUST NOT repeat L1. If L1 is "Slow ROI Pacing", L2 should explain if it's due to "Prior day ROI crash" or "Multi-campaign transition gap".
-    * SEVERITY: "High" only if aggregate end-of-day Low BU persists across multiple days.
-    * SEVERITY JUSTIFICATION: Exactly one sentence on persistency and volume context.
-    * EVIDENCE: Use SL ROI and ROI Target terms. Mention aggregate daily click totals to prove your volume understanding.`,
+    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is consistently low at the END OF THE DAY (final buckets).
+    * ROOT CAUSES (L1):
+        - Slow ROI Pacing: ROI Target is high and moving slowly.
+        - Fast Budget Pacing: ROI target increased too rapidly to curb spend.
+        - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
+            * L2 DRIVERS: 
+              a) Significant SL ROI increase by the seller (check if SL ROI jumped significantly, causing a high error in the control loop).
+              b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small for the volatility, leading to "false" protection triggers.
+        - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
+        - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
+    * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
+    * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
+    * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
   prompt: `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
@@ -75,12 +73,12 @@ Catalog Data (sorted by timestamp):
 {{{catalogDataJson}}}
 
 Tasks:
-1. Confirm validity based on AGGREGATE EOD BU% and multi-campaign sequential flow.
+1. Confirm validity based on EOD BU% trends and multi-campaign sequential flow.
 2. Identify Root Cause (L1).
-3. Identify L2 Reason: Underlying driver (e.g., status, suppression, campaign transition gaps).
+3. Identify L2 Reason: Focus on SL ROI spikes or window stability if protection side was triggered.
 4. Evidence: Use SL ROI and ROI Target terms. Reference AGGREGATE daily clicks.
-5. Recommend a fix.
-6. Justify Severity: One sentence on persistency.
+5. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
+6. Justify Severity at the catalog level based on persistency.
 
 Return JSON matching the schema.`,
 });
