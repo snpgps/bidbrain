@@ -12,6 +12,7 @@ import { DiagnoseBiddingOutput, BiddingDataRowSchema } from '@/ai/flows/diagnose
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFirestore, useUser, useStorage, useAuth } from '@/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -129,8 +130,9 @@ export default function BidBrainPage() {
 
       // 3. Prepare data for individual catalog calls
       addLog(`Preparing catalog-level groupings...`, 'info');
+      // Fix: Use historical data for analysis
       const today = new Date().toISOString().split('T')[0];
-      const historicalData = currentBiddingData.filter(row => !row.timestamp?.startsWith(today));
+      const historicalData = currentBiddingData;
       
       const catalogDataMap = new Map<string, any[]>();
       for (const row of historicalData) {
@@ -153,7 +155,7 @@ export default function BidBrainPage() {
           const catalogRows = catalogDataMap.get(catalogId)!;
           const diagnosticResult = await diagnoseBiddingPerformance({
             analysisType,
-            biddingData: catalogRows, // Send only this catalog's data
+            biddingData: catalogRows,
             nWindow,
             kTrigger,
             pUp,
@@ -161,7 +163,7 @@ export default function BidBrainPage() {
           });
 
           if (diagnosticResult && diagnosticResult.length > 0) {
-            const result = diagnosticResult[0]; // It's a single catalog call
+            const result = diagnosticResult[0];
             accumulatedResults.push(result);
             setResults(prev => [...prev, result]);
 
@@ -404,4 +406,3 @@ export default function BidBrainPage() {
     </div>
   );
 }
-
