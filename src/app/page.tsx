@@ -212,9 +212,6 @@ export default function BidBrainPage() {
             <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
               Diagnostic Bidding Agent
             </h2>
-            <p className="text-muted-foreground max-w-2xl text-lg">
-              Upload catalog data to Firebase Storage for deep AI analysis and session tracking.
-            </p>
           </div>
         </section>
 
