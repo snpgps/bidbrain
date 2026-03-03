@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -7,21 +6,20 @@ import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, Histor
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
-import { diagnoseBiddingPerformance, fetchCsvFromUrl } from '@/ai/flows/diagnose-bidding-performance';
-import { DiagnoseBiddingOutput, BiddingDataRowSchema } from '@/ai/flows/diagnose-bidding-performance.schema';
+import { diagnoseBiddingPerformance } from '@/ai/flows/diagnose-bidding-performance';
+import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFirestore, useUser, useStorage, useAuth } from '@/firebase';
-import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
+import { FirestorePermissionError } from '@/firebase/errors';
 import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { z } from 'zod';
 
 type LogEntry = {
   timestamp: string;
@@ -77,6 +75,29 @@ export default function BidBrainPage() {
     await signOut(auth);
   };
 
+  const runCatalogDiagnostic = async (catalogId: string, rows: any[], retryCount = 0): Promise<DiagnoseBiddingOutput | null> => {
+    try {
+      const diagnosticResult = await diagnoseBiddingPerformance({
+        analysisType,
+        biddingData: rows,
+        nWindow,
+        kTrigger,
+        pUp,
+        pDown
+      });
+      return diagnosticResult && diagnosticResult.length > 0 ? diagnosticResult[0] : null;
+    } catch (err: any) {
+      // Handle Quota Limit (429) with exponential backoff
+      if ((err.message.includes('429') || err.message.includes('Quota')) && retryCount < 2) {
+        const waitTime = (retryCount + 1) * 3000;
+        addLog(`Quota hit for ${catalogId}. Cooling down for ${waitTime/1000}s (Retry ${retryCount + 1}/2)...`, 'warning');
+        await new Promise(r => setTimeout(r, waitTime));
+        return runCatalogDiagnostic(catalogId, rows, retryCount + 1);
+      }
+      throw err;
+    }
+  };
+
   const handleRunAnalysis = async () => {
     if ((!selectedFile && biddingData.length === 0) || !db || !storage) return;
 
@@ -90,20 +111,14 @@ export default function BidBrainPage() {
 
     try {
       let fileUrl = '';
-      let currentBiddingData = biddingData;
-      
-      // 1. Upload to Storage
       if (selectedFile) {
         addLog(`Uploading file: ${selectedFile.name}...`, 'info');
         const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
         const uploadResult = await uploadBytes(storageRef, selectedFile);
         fileUrl = await getDownloadURL(uploadResult.ref);
         addLog(`File uploaded successfully to Storage.`, 'success');
-      } else if (biddingData.length > 0) {
-        addLog(`Using manually pasted data...`, 'info');
       }
 
-      // 2. Create session record
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
       const sessionData = {
         id: newSessionId,
@@ -119,7 +134,7 @@ export default function BidBrainPage() {
         userId: user?.uid || 'anonymous'
       };
 
-      setDoc(sessionRef, sessionData).catch(async (e) => {
+      await setDoc(sessionRef, sessionData).catch(async (e) => {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
           path: sessionRef.path,
           operation: 'create',
@@ -128,14 +143,8 @@ export default function BidBrainPage() {
       });
       addLog(`Session record created in Firestore.`, 'success');
 
-      // 3. Prepare data for individual catalog calls
-      addLog(`Preparing catalog-level groupings...`, 'info');
-      // Fix: Use historical data for analysis
-      const today = new Date().toISOString().split('T')[0];
-      const historicalData = currentBiddingData;
-      
       const catalogDataMap = new Map<string, any[]>();
-      for (const row of historicalData) {
+      for (const row of biddingData) {
         if (!catalogDataMap.has(row.catalog_id)) {
           catalogDataMap.set(row.catalog_id, []);
         }
@@ -143,9 +152,8 @@ export default function BidBrainPage() {
       }
 
       const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
-      addLog(`Found ${catalogIds.length} unique catalogs for analysis.`, 'info');
+      addLog(`Found ${catalogIds.length} unique catalogs. Starting robust sequential analysis...`, 'info');
 
-      // 4. Sequential Loop with Logging and Incremental Storage
       const accumulatedResults: DiagnoseBiddingOutput[] = [];
 
       for (const [index, catalogId] of catalogIds.entries()) {
@@ -153,21 +161,12 @@ export default function BidBrainPage() {
         
         try {
           const catalogRows = catalogDataMap.get(catalogId)!;
-          const diagnosticResult = await diagnoseBiddingPerformance({
-            analysisType,
-            biddingData: catalogRows,
-            nWindow,
-            kTrigger,
-            pUp,
-            pDown
-          });
+          const result = await runCatalogDiagnostic(catalogId, catalogRows);
 
-          if (diagnosticResult && diagnosticResult.length > 0) {
-            const result = diagnosticResult[0];
+          if (result) {
             accumulatedResults.push(result);
             setResults(prev => [...prev, result]);
 
-            // Save result to Firestore IMMEDIATELY
             const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
             const resData = { ...result, timestamp: new Date().toISOString() };
             
@@ -183,7 +182,7 @@ export default function BidBrainPage() {
           }
         } catch (err: any) {
           if (err.message.includes('429') || err.message.includes('Quota')) {
-            addLog(`Quota Limit Reached. Saving existing progress and stopping.`, 'warning');
+            addLog(`FATAL: Quota Limit persists. Saving progress and stopping.`, 'error');
             setError(`AI Quota reached. Results for ${accumulatedResults.length} catalogs were saved.`);
             break;
           } else {
@@ -191,11 +190,10 @@ export default function BidBrainPage() {
           }
         }
         
-        // Brief delay to help prevent rate limit triggers
-        await new Promise(r => setTimeout(r, 300));
+        // Safety delay between successful calls to avoid spiking RPM
+        await new Promise(r => setTimeout(r, 1000));
       }
 
-      // 5. Final Status Update
       const finalStatus = accumulatedResults.length > 0 ? 'completed' : 'failed';
       setDoc(sessionRef, { status: finalStatus }, { merge: true });
       addLog(`Session ${finalStatus}. Diagnostics complete.`, finalStatus === 'completed' ? 'success' : 'error');
@@ -340,7 +338,7 @@ export default function BidBrainPage() {
                 </div>
                 <div className="text-center space-y-1">
                   <p className="font-bold text-xl font-headline text-primary">Processing Diagnostic Session</p>
-                  <p className="text-sm text-muted-foreground">Analyzing catalogs one-by-one with real-time logging...</p>
+                  <p className="text-sm text-muted-foreground">Analyzing catalogs with robust rate-limiting and retry logic...</p>
                 </div>
               </div>
               

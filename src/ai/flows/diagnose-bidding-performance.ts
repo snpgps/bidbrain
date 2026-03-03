@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for diagnosing bidding performance issues.
@@ -107,7 +106,6 @@ export async function diagnoseBiddingPerformance(
 
   const {analysisType, nWindow = 1800, kTrigger = 360} = input;
   
-  // Grouping logic (in case of multi-catalog batch, though client now calls individually)
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
   for (const row of biddingData) {
     if (!catalogDataMap.has(row.catalog_id)) {
