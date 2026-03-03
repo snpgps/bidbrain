@@ -1,6 +1,7 @@
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for diagnosing bidding performance issues.
+ * It handles multi-campaign sequential logic where a catalog may belong to multiple campaigns.
  */
 
 import {ai} from '@/ai/genkit';
@@ -19,7 +20,7 @@ const LLMPromptInputSchema = z.object({
   analysisType: AnalysisTypeSchema,
   catalogDataJson: z
     .string()
-    .describe('JSON string of time-bucket level data for a single catalog.'),
+    .describe('JSON string of time-bucket level data for a single catalog. May contain multiple campaigns.'),
   catalog_id: z
     .string()
     .describe('The ID of the catalog for which the data is provided.'),
@@ -38,47 +39,48 @@ const diagnoseBiddingPrompt = ai.definePrompt({
 CORE CONTROL LOGIC:
 1. Bid Formula: Bid = pCVR * (AOV / ROI_Target).
 2. ROI Target Dynamics:
-   - ROI Pacing to increase spending (Spending Side): When Catalog_ROI > SL_ROI and BU < BU Ideal, the system REDUCES ROI_Target to increase the bid and spending.
-   - ROI Pacing to protect delivery (Protection Side): When Catalog_ROI < SL_ROI, the system INCREASES ROI_Target to decrease the bid and protect margins.
-   - Budget Pacing to reduce spending when we’re overdelivering: When Catalog_ROI > SL_ROI and BU > BU Ideal, the system INCREASES ROI_Target to decrease the bid and curb over-spending.
-3. Reliability Window (N): ROI stability for Catalog_ROI is calculated over a rolling window of N = {{{nWindow}}} clicks.
-4. Update Trigger (K): ROI_Target is updated every K = {{{kTrigger}}} clicks based on the delivery and spending regimes.
-5. Asymmetric Sensitivity (P-values):
-   - P_down ({{{pDown}}}): Sensitivity for INCREASING ROI_Target (reacts fast to protect ROI).
-   - P_up ({{{pUp}}}): Sensitivity for DECREASING ROI_Target (reacts slowly to scale spend).
-ROI protection is the primary goal of this system.
+   - ROI Pacing to increase spending: When Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target.
+   - ROI Pacing to protect delivery: When Catalog_ROI < SL_ROI, INCREASE ROI_Target.
+   - Budget Pacing to reduce spending: When Catalog_ROI > SL_ROI and BU > BU Ideal, INCREASE ROI_Target.
+3. Reliability Window (N): ROI stability for Catalog_ROI is calculated over N = {{{nWindow}}} clicks.
+4. Update Trigger (K): ROI_Target is updated every K = {{{kTrigger}}} clicks.
+5. Asymmetric Sensitivity: P_down ({{{pDown}}}) reacts fast to protect ROI; P_up ({{{pUp}}}) reacts slowly to scale spend.
+
+MULTI-CAMPAIGN SEQUENTIAL LOGIC:
+- A single Catalog ID may be part of multiple campaigns.
+- Campaigns often run SEQUENTIALLY: One campaign runs until its daily budget exhausts, then the next campaign starts for the remainder of the day.
+- You may see multiple entries for the same timestamp if the catalog is transitioning or active across campaigns. 
+- Decisions (ROI Target updates) are still made at the CATALOG level based on total catalog clicks.
+- Check if "Low BU" is caused by a failure to transition between campaigns or if one campaign's exhaustion is misinterpreted by the pacing logic.
 
 DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
-    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets). Check this for consistent under spending through the analysis period. Say there is no problem if BU is consistently above 80% at the end of the day.
-    * ROOT CAUSE ANALYSIS (L1):
-        - Slow ROI Pacing: If ROI Target is consistently high and moving slowly despite high delivered ROI. Often tied to low click volume preventing K-trigger updates.
-        - Fast Budget Pacing: If ROI target was increased very fast by the Budget pacing module.
-        - Fast ROI Pacing (protection side): If ROI Pacing increased target too fast during a low-ROI period.
-        - Incorrect Catalog ROI Window: If high N value causes lag in updating ROI Target despite high Day ROI.
-        - Campaign status issues: If the catalog/campaign status is "paused" or "inactive" for significant periods.
-    * L2 REASONING (The "Why"): Identify the underlying driver of the L1 issue. L2 MUST NOT repeat L1.
-        - Check "status" columns: Is it paused?
-        - Check history: Did a previous ROI crash cause a massive ROI Target spike (System Suppression)?
-        - Check volume: Is there naturally low click volume or is it system-suppressed?
+    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is consistently low at the END OF THE DAY (final daily buckets). Say there is no problem if BU is consistently above 80% at EOD.
+    * ROOT CAUSES:
+        - Slow ROI Pacing: ROI Target is high and moving slowly. Often due to low click volume (below K-trigger) preventing updates.
+        - Fast Budget Pacing: ROI target increased too rapidly. Note: System resets ROI target daily unless Catalog ROI was in 1-1.2 range at EOD (where budget pacing likely suppressed delivery).
+        - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period, leading to suppressed spending on subsequent days.
+        - Incorrect Catalog ROI Window: Large N causes lag. Day ROI might be high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
+        - Catalog/Campaign Status: Check if "status" columns show "paused" or "inactive".
+    * L1 vs L2 REASONING:
+        - L1 (What): The technical mechanism (e.g., "Slow ROI Pacing").
+        - L2 (Why): The underlying driver. MUST NOT repeat L1. (e.g., "Prior day ROI crash caused suppression" or "Campaign exhausted budget before 2nd campaign could pick up").
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
-    * SEVERITY JUSTIFICATION: Exactly one sentence summarizing the persistency of the issue.
-    * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
-
-Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data.`,
+    * SEVERITY JUSTIFICATION: Exactly one sentence on persistency.
+    * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha.`,
   prompt: `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
-Catalog Data:
+Catalog Data (sorted by timestamp):
 {{{catalogDataJson}}}
 
 Tasks:
-1. Confirm validity based on EOD BU% trends.
+1. Confirm validity based on EOD BU% and multi-campaign sequential flow.
 2. Identify Root Cause (L1).
-3. Identify L2 Reason: Short explanation (few words) of the underlying driver. DO NOT repeat the L1 root cause.
-4. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
+3. Identify L2 Reason: Underlying driver (e.g., status, suppression, campaign transition gaps).
+4. Evidence: Use SL ROI and ROI Target terms.
 5. Recommend a fix.
-6. Justify Severity: Exactly one sentence reasoning for severity level.
+6. Justify Severity: One sentence on persistency.
 
 Return JSON matching the schema.`,
 });
@@ -95,7 +97,6 @@ export async function diagnoseBiddingPerformance(
 ): Promise<DiagnoseBiddingOutput[]> {
   let biddingData = input.biddingData;
 
-  // Fetch data from storage if URL is provided
   if (input.fileUrl) {
     biddingData = await fetchCsvFromUrl(input.fileUrl);
   }
@@ -105,13 +106,11 @@ export async function diagnoseBiddingPerformance(
   }
 
   const {analysisType, nWindow = 1800, kTrigger = 360} = input;
-
-  // Filter out current day (incomplete data)
   const today = new Date().toISOString().split('T')[0];
   const historicalData = biddingData.filter(row => !row.timestamp.startsWith(today));
 
   if (historicalData.length === 0) {
-    throw new Error("No complete historical days found in data. Diagnostics require at least one full day of history.");
+    throw new Error("No complete historical days found in data.");
   }
 
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
@@ -122,13 +121,11 @@ export async function diagnoseBiddingPerformance(
     catalogDataMap.get(row.catalog_id)?.push(row);
   }
 
-  const catalogIds = Array.from(catalogDataMap.keys());
-  const limitedCatalogIds = catalogIds.slice(0, 20);
-
+  const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 20);
   const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
   const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
 
-  const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
+  const diagnosticPromises = catalogIds.map(async (catalogId) => {
     const catalogRows = catalogDataMap.get(catalogId)!;
     const sortedData = [...catalogRows].sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -146,7 +143,6 @@ export async function diagnoseBiddingPerformance(
       });
 
       if (!output) return null;
-
       return { ...output, catalog_id: catalogId };
     } catch (error: any) {
       throw new Error(`AI Diagnostic Error for Catalog ${catalogId}: ${error.message}`);
