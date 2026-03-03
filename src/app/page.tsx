@@ -130,26 +130,13 @@ export default function BidBrainPage() {
         nWindow,
         kTrigger,
         pUp,
-        pDown
+        pDown,
+        sessionId: newSessionId
       });
 
       if (batchResults && batchResults.length > 0) {
         setResults(batchResults);
         addLog(`Successfully analyzed ${batchResults.length} catalogs on the backend.`, 'success');
-
-        addLog(`Persisting batch results to Firestore...`, 'info');
-        for (const res of batchResults) {
-          const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', res.catalog_id);
-          const resData = { ...res, timestamp: new Date().toISOString() };
-          
-          setDoc(resRef, resData).catch(async () => {
-            errorEmitter.emit('permission-error', new FirestorePermissionError({
-              path: resRef.path,
-              operation: 'create',
-              requestResourceData: resData,
-            }));
-          });
-        }
         
         setDoc(sessionRef, { status: 'completed' }, { merge: true });
         addLog(`Session completed. All diagnostics stored.`, 'success');

@@ -15,6 +15,8 @@ import {
   BiddingDataRowSchema
 } from './diagnose-bidding-performance.schema';
 import { parseBiddingCsv } from '@/lib/csv-utils';
+import { initializeFirebase } from '@/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
 const LLMPromptInputSchema = z.object({
   analysisType: AnalysisTypeSchema,
@@ -62,8 +64,8 @@ DIAGNOSIS GUIDELINES:
               a) Significant SL ROI increase by the seller (check if SL ROI jumped significantly, causing a high error in the control loop).
               b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small for the volatility, leading to "false" protection triggers.
         - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
-        - Outlier days: Spends behaved differently than they usually do because of sale or any other click mix change reason, leading to low ROI on the day. This leads to a drop in Catalog ROI, leading to an increase in ROI target over multiple days. A high ROI target can also result in low clicks and low ROI as we’re not exploring enough. This in turn puts the catalog in a low clicks and low ROI loop.
         - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
+        - Outlier days: Spends behaved differently than they usually do because of sale or any other click mix change reason, leading to low ROI on the day. This leads to a drop in Catalog ROI, leading to an increase in ROI target over multiple days. A high ROI target can also result in low clicks and low ROI as we’re not exploring enough. This in turn puts the catalog in a low clicks and low ROI loop.
     * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
@@ -92,7 +94,7 @@ export async function fetchCsvFromUrl(url: string) {
 }
 
 export async function diagnoseBiddingPerformance(
-  input: DiagnoseBiddingInput & { fileUrl?: string; pUp?: number; pDown?: number }
+  input: DiagnoseBiddingInput & { fileUrl?: string; pUp?: number; pDown?: number; sessionId?: string }
 ): Promise<DiagnoseBiddingOutput[]> {
   let biddingData = input.biddingData;
 
@@ -104,7 +106,8 @@ export async function diagnoseBiddingPerformance(
     throw new Error("No bidding data provided for analysis.");
   }
 
-  const {analysisType, nWindow = 1800, kTrigger = 360} = input;
+  const {analysisType, nWindow = 1800, kTrigger = 360, sessionId} = input;
+  const { firestore } = initializeFirebase();
   
   // Group data by catalog ID
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
@@ -147,7 +150,17 @@ export async function diagnoseBiddingPerformance(
         });
 
         if (output) {
-          validResults.push({ ...output, catalog_id: catalogId });
+          const result = { ...output, catalog_id: catalogId };
+          validResults.push(result);
+          
+          // INCREMENTAL STORAGE: Save to Firestore immediately if sessionId is provided
+          if (sessionId && firestore) {
+            const resRef = doc(firestore, 'analysis_sessions', sessionId, 'results', catalogId);
+            setDoc(resRef, { ...result, timestamp: new Date().toISOString() }).catch(e => {
+               // Silently catch permission errors on individual saves to not break the batch
+            });
+          }
+          
           success = true;
         }
       } catch (err: any) {
