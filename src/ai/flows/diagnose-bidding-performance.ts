@@ -108,6 +108,7 @@ export async function diagnoseBiddingPerformance(
   }
 
   const catalogIds = Array.from(catalogDataMap.keys());
+  // Analyze up to 20 catalogs to balance performance and depth
   const limitedCatalogIds = catalogIds.slice(0, 20);
 
   const pUp = biddingData[0]?.p_up ?? 0.1;
