@@ -1,16 +1,18 @@
+
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Terminal, CheckCircle2 } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
-import { diagnoseBiddingPerformance } from '@/ai/flows/diagnose-bidding-performance';
-import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
+import { diagnoseBiddingPerformance, fetchCsvFromUrl } from '@/ai/flows/diagnose-bidding-performance';
+import { DiagnoseBiddingOutput, BiddingDataRowSchema } from '@/ai/flows/diagnose-bidding-performance.schema';
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFirestore, useUser, useStorage, useAuth } from '@/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -18,6 +20,13 @@ import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { z } from 'zod';
+
+type LogEntry = {
+  timestamp: string;
+  message: string;
+  type: 'info' | 'success' | 'error' | 'warning';
+};
 
 export default function BidBrainPage() {
   const db = useFirestore();
@@ -35,7 +44,22 @@ export default function BidBrainPage() {
   const [results, setResults] = useState<DiagnoseBiddingOutput[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const addLog = (message: string, type: LogEntry['type'] = 'info') => {
+    setLogs(prev => [...prev, {
+      timestamp: new Date().toLocaleTimeString(),
+      message,
+      type
+    }]);
+  };
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs]);
 
   const handleSignIn = async () => {
     if (!auth) return;
@@ -58,21 +82,27 @@ export default function BidBrainPage() {
     setIsLoading(true);
     setResults([]);
     setError(null);
+    setLogs([]);
 
     const newSessionId = crypto.randomUUID();
-    setSessionId(newSessionId);
+    addLog(`Initialized new diagnostic session: ${newSessionId}`, 'info');
 
     try {
       let fileUrl = '';
+      let currentBiddingData = biddingData;
       
-      // 1. Upload to Storage if a file is selected
+      // 1. Upload to Storage
       if (selectedFile) {
+        addLog(`Uploading file: ${selectedFile.name}...`, 'info');
         const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
         const uploadResult = await uploadBytes(storageRef, selectedFile);
         fileUrl = await getDownloadURL(uploadResult.ref);
+        addLog(`File uploaded successfully to Storage.`, 'success');
+      } else if (biddingData.length > 0) {
+        addLog(`Using manually pasted data...`, 'info');
       }
 
-      // 2. Create session record in Firestore
+      // 2. Create session record
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
       const sessionData = {
         id: newSessionId,
@@ -88,65 +118,90 @@ export default function BidBrainPage() {
         userId: user?.uid || 'anonymous'
       };
 
-      setDoc(sessionRef, sessionData)
-        .catch(async (serverError) => {
-          const permissionError = new FirestorePermissionError({
-            path: sessionRef.path,
-            operation: 'create',
-            requestResourceData: sessionData,
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        });
-
-      // 3. Run Analysis
-      const diagnosticResults = await diagnoseBiddingPerformance({
-        analysisType,
-        biddingData: selectedFile ? [] : biddingData,
-        fileUrl: fileUrl,
-        pUp,
-        pDown,
-        nWindow,
-        kTrigger
+      setDoc(sessionRef, sessionData).catch(async (e) => {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({
+          path: sessionRef.path,
+          operation: 'create',
+          requestResourceData: sessionData,
+        }));
       });
+      addLog(`Session record created in Firestore.`, 'success');
+
+      // 3. Prepare data for individual catalog calls
+      addLog(`Preparing catalog-level groupings...`, 'info');
+      const today = new Date().toISOString().split('T')[0];
+      const historicalData = currentBiddingData.filter(row => !row.timestamp?.startsWith(today));
       
-      if (!diagnosticResults || diagnosticResults.length === 0) {
-        throw new Error("No issues were confirmed in the uploaded data.");
+      const catalogDataMap = new Map<string, any[]>();
+      for (const row of historicalData) {
+        if (!catalogDataMap.has(row.catalog_id)) {
+          catalogDataMap.set(row.catalog_id, []);
+        }
+        catalogDataMap.get(row.catalog_id)?.push(row);
       }
 
-      // 4. Store results in Firestore subcollection
-      diagnosticResults.forEach((res) => {
-        const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', res.catalog_id);
-        const resData = {
-          ...res,
-          timestamp: new Date().toISOString()
-        };
+      const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
+      addLog(`Found ${catalogIds.length} unique catalogs for analysis.`, 'info');
+
+      // 4. Sequential Loop with Logging and Incremental Storage
+      const accumulatedResults: DiagnoseBiddingOutput[] = [];
+
+      for (const [index, catalogId] of catalogIds.entries()) {
+        addLog(`[${index + 1}/${catalogIds.length}] Analyzing Catalog: ${catalogId}...`, 'info');
         
-        setDoc(resRef, resData)
-          .catch(async (serverError) => {
-            const permissionError = new FirestorePermissionError({
-              path: resRef.path,
-              operation: 'create',
-              requestResourceData: resData,
-            } satisfies SecurityRuleContext);
-            errorEmitter.emit('permission-error', permissionError);
+        try {
+          const catalogRows = catalogDataMap.get(catalogId)!;
+          const diagnosticResult = await diagnoseBiddingPerformance({
+            analysisType,
+            biddingData: catalogRows, // Send only this catalog's data
+            nWindow,
+            kTrigger,
+            pUp,
+            pDown
           });
-      });
 
-      // 5. Update session status
-      setDoc(sessionRef, { status: 'completed' }, { merge: true })
-        .catch(async (serverError) => {
-          const permissionError = new FirestorePermissionError({
-            path: sessionRef.path,
-            operation: 'update',
-            requestResourceData: { status: 'completed' },
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        });
+          if (diagnosticResult && diagnosticResult.length > 0) {
+            const result = diagnosticResult[0]; // It's a single catalog call
+            accumulatedResults.push(result);
+            setResults(prev => [...prev, result]);
 
-      setResults(diagnosticResults);
+            // Save result to Firestore IMMEDIATELY
+            const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
+            const resData = { ...result, timestamp: new Date().toISOString() };
+            
+            setDoc(resRef, resData).catch(async () => {
+              errorEmitter.emit('permission-error', new FirestorePermissionError({
+                path: resRef.path,
+                operation: 'create',
+                requestResourceData: resData,
+              }));
+            });
+
+            addLog(`Success: Results stored for Catalog ${catalogId}.`, 'success');
+          }
+        } catch (err: any) {
+          if (err.message.includes('429') || err.message.includes('Quota')) {
+            addLog(`Quota Limit Reached. Saving existing progress and stopping.`, 'warning');
+            setError(`AI Quota reached. Results for ${accumulatedResults.length} catalogs were saved.`);
+            break;
+          } else {
+            addLog(`Error analyzing ${catalogId}: ${err.message}`, 'error');
+          }
+        }
+        
+        // Brief delay to help prevent rate limit triggers
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // 5. Final Status Update
+      const finalStatus = accumulatedResults.length > 0 ? 'completed' : 'failed';
+      setDoc(sessionRef, { status: finalStatus }, { merge: true });
+      addLog(`Session ${finalStatus}. Diagnostics complete.`, finalStatus === 'completed' ? 'success' : 'error');
+
     } catch (err: any) {
       console.error("Diagnostic Run Error:", err);
       setError(err.message || "An unexpected error occurred during AI diagnostics.");
+      addLog(`FATAL ERROR: ${err.message}`, 'error');
       if (db) {
         const sessionRef = doc(db, 'analysis_sessions', newSessionId);
         setDoc(sessionRef, { status: 'failed' }, { merge: true });
@@ -218,7 +273,7 @@ export default function BidBrainPage() {
         {error && (
           <Alert variant="destructive" className="bg-destructive/5 border-destructive/20">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle className="font-bold">Analysis Failed</AlertTitle>
+            <AlertTitle className="font-bold">Process Update</AlertTitle>
             <AlertDescription className="space-y-3">
               <p className="text-sm opacity-90">{error}</p>
               <Button 
@@ -227,7 +282,7 @@ export default function BidBrainPage() {
                 onClick={handleRunAnalysis}
                 className="bg-white hover:bg-destructive/10 border-destructive/30 text-destructive h-8 font-semibold"
               >
-                Retry Analysis
+                Retry Batch
               </Button>
             </AlertDescription>
           </Alert>
@@ -273,16 +328,55 @@ export default function BidBrainPage() {
 
         <section className="space-y-6 pt-4">
           {isLoading && (
-            <div className="flex flex-col items-center justify-center py-20 space-y-4 animate-in fade-in zoom-in-95 duration-300 bg-card rounded-2xl border border-border shadow-sm">
-              <div className="relative">
-                <BarChart3 className="w-12 h-12 text-primary/20 animate-pulse" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-7 flex flex-col items-center justify-center py-20 space-y-4 bg-card rounded-2xl border border-border shadow-sm">
+                <div className="relative">
+                  <BarChart3 className="w-12 h-12 text-primary/20 animate-pulse" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                  </div>
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="font-bold text-xl font-headline text-primary">Processing Diagnostic Session</p>
+                  <p className="text-sm text-muted-foreground">Analyzing catalogs one-by-one with real-time logging...</p>
                 </div>
               </div>
-              <div className="text-center space-y-1">
-                <p className="font-bold text-xl font-headline text-primary">Processing Diagnostic Session</p>
-                <p className="text-sm text-muted-foreground">Persisting file to Storage and results to Firestore...</p>
+              
+              <div className="lg:col-span-5">
+                <Card className="bg-slate-950 border-slate-800 shadow-xl overflow-hidden">
+                  <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Terminal className="w-4 h-4 text-emerald-400" />
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Process Logs</span>
+                    </div>
+                    <div className="flex space-x-1.5">
+                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
+                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
+                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
+                    </div>
+                  </div>
+                  <ScrollArea className="h-[300px] p-4 font-code text-[11px] leading-relaxed">
+                    <div className="space-y-2">
+                      {logs.map((log, i) => (
+                        <div key={i} className="flex space-x-3">
+                          <span className="text-slate-500 whitespace-nowrap">[{log.timestamp}]</span>
+                          <span className={
+                            log.type === 'success' ? 'text-emerald-400' :
+                            log.type === 'error' ? 'text-rose-400' :
+                            log.type === 'warning' ? 'text-amber-400' :
+                            'text-slate-300'
+                          }>
+                            {log.type === 'success' && '✓ '}
+                            {log.type === 'error' && '✖ '}
+                            {log.type === 'warning' && '! '}
+                            {log.message}
+                          </span>
+                        </div>
+                      ))}
+                      <div ref={scrollRef} />
+                    </div>
+                  </ScrollArea>
+                </Card>
               </div>
             </div>
           )}
@@ -291,7 +385,7 @@ export default function BidBrainPage() {
             <ResultsView 
               results={results} 
               analysisType={analysisType} 
-              originalData={selectedFile ? biddingData : biddingData}
+              originalData={biddingData}
             />
           )}
 
@@ -310,3 +404,4 @@ export default function BidBrainPage() {
     </div>
   );
 }
+

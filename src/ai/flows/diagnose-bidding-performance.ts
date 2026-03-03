@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for diagnosing bidding performance issues.
@@ -62,8 +63,8 @@ DIAGNOSIS GUIDELINES:
               a) Significant SL ROI increase by the seller (check if SL ROI jumped significantly, causing a high error in the control loop).
               b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small for the volatility, leading to "false" protection triggers.
         - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
-        - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
         - Outlier days: Spends behaved differently than they usually do because of sale or any other click mix change reason, leading to low ROI on the day. This leads to a drop in Catalog ROI, leading to an increase in ROI target over multiple days. A high ROI target can also result in low clicks and low ROI as we’re not exploring enough. This in turn puts the catalog in a low clicks and low ROI loop.
+        - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
     * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
@@ -91,8 +92,6 @@ export async function fetchCsvFromUrl(url: string) {
   return parseBiddingCsv(csvText);
 }
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export async function diagnoseBiddingPerformance(
   input: DiagnoseBiddingInput & { fileUrl?: string; pUp?: number; pDown?: number }
 ): Promise<DiagnoseBiddingOutput[]> {
@@ -107,63 +106,41 @@ export async function diagnoseBiddingPerformance(
   }
 
   const {analysisType, nWindow = 1800, kTrigger = 360} = input;
-  const today = new Date().toISOString().split('T')[0];
-  const historicalData = biddingData.filter(row => !row.timestamp.startsWith(today));
-
-  if (historicalData.length === 0) {
-    throw new Error("No complete historical days found in data.");
-  }
-
+  
+  // Grouping logic (in case of multi-catalog batch, though client now calls individually)
   const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
-  for (const row of historicalData) {
+  for (const row of biddingData) {
     if (!catalogDataMap.has(row.catalog_id)) {
       catalogDataMap.set(row.catalog_id, []);
     }
     catalogDataMap.get(row.catalog_id)?.push(row);
   }
 
-  // Limit batch size to prevent excessive token usage in prototype
-  const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
+  const catalogIds = Array.from(catalogDataMap.keys());
   const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
   const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
 
   const validResults: DiagnoseBiddingOutput[] = [];
 
-  // SEQUENTIAL PROCESSING: To avoid 429 RESOURCE_EXHAUSTED errors
   for (const catalogId of catalogIds) {
     const catalogRows = catalogDataMap.get(catalogId)!;
     const sortedData = [...catalogRows].sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
-    try {
-      const {output} = await diagnoseBiddingPrompt({
-        analysisType,
-        catalogDataJson: JSON.stringify(sortedData, null, 2),
-        catalog_id: catalogId,
-        pUp,
-        pDown,
-        nWindow,
-        kTrigger,
-      });
+    const {output} = await diagnoseBiddingPrompt({
+      analysisType,
+      catalogDataJson: JSON.stringify(sortedData, null, 2),
+      catalog_id: catalogId,
+      pUp,
+      pDown,
+      nWindow,
+      kTrigger,
+    });
 
-      if (output) {
-        validResults.push({ ...output, catalog_id: catalogId });
-      }
-      
-      // Small 200ms pause to stagger requests and stay within RPM limits
-      await delay(200);
-    } catch (error: any) {
-      console.error(`AI Diagnostic Error for Catalog ${catalogId}:`, error.message);
-      // We continue to next catalog instead of failing the whole batch
-      if (error.message.includes('429') || error.message.includes('QUOTA')) {
-        throw new Error(`AI Quota reached. Please retry in a few seconds. Failed at Catalog ${catalogId}`);
-      }
+    if (output) {
+      validResults.push({ ...output, catalog_id: catalogId });
     }
-  }
-
-  if (validResults.length === 0) {
-    throw new Error("Analysis completed but no valid insights were generated. Please check your data quality.");
   }
 
   return validResults;
