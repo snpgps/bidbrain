@@ -22,8 +22,8 @@ const LLMPromptInputSchema = z.object({
   catalog_id: z
     .string()
     .describe('The ID of the catalog for which the data is provided.'),
-  pUp: z.number().describe('The P_up constant used in the control system.'),
-  pDown: z.number().describe('The P_down constant used in the control system.'),
+  pUp: z.number().describe('The P_up constant used in the system.'),
+  pDown: z.number().describe('The P_down constant used in the system.'),
   nWindow: z.number().describe('The window size N for ROI stability.'),
   kTrigger: z.number().describe('The trigger K for update frequency.'),
 });
@@ -49,16 +49,19 @@ ROI protection is the primary goal of this system.
 
 DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
-    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets). Check this for consistent under spending through the analysis period. Understand if the issue is consistent or sporadic. Say there is no problem is BU is consistently above 80% at the end of the day.
-    * ROOT CAUSE ANALYSIS:
-        - Slow ROI Pacing: If ROI Target is consistently high, the system is likely moving slowly through ROI pacing. It depends on the value of K clicks and if clicks are low, the module is not able to increase spending effectively.
-        - Fast Budget Pacing: If ROI target is increased very fast by the Budget pacing module, it may not be able to spend aggressively. We reset the ROI target every day at the start to a lower value based on some reset logic. This doesn’t happen if the catalog roi is in 1 - 1.2 range at the end of the day as we ended up with a relatively low delivery even after budget pacing tried to get higher ROI by increasing ROI target
-        - Fast ROI Pacing (protection side): Check if ROI Pacing is too fast (as delivered ROI is in denominator for the error, the error can be very high when delivered ROI is low) in increasing the ROI target, leading to a low spending on subsequent days and then switching to the ROI pacing spending module, but since clicks are low, spending doesn’t increase fast enough.
-        - Incorrect Catalog ROI Window: When the ROI target is high, but we're under delivering, the ROI target will keep increasing. The problem is that the N value is too high. Even though we're over delivering in the short period (Day ROI is very high), we're not showing the same in catalog ROI because of the low clicks per day. This leads to lag in the decision making and incorrect updates to ROI target to further reduce the spending.
-        - Catalog/Campaign Status: If most of the time, a catalog or campaign is paused, the catalog will not be able to spend any money as it’s not bidding.
-    * L2 REASONING: Identify the reason causing the L1 issue in just a few words. Distinguish between natural characteristics vs system-induced effects. Example: "Slow ROI pacing due to high ROI target" (L1) could be caused by "Fast ROI pacing earlier" (L2).
+    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets). Check this for consistent under spending through the analysis period. Say there is no problem if BU is consistently above 80% at the end of the day.
+    * ROOT CAUSE ANALYSIS (L1):
+        - Slow ROI Pacing: If ROI Target is consistently high and moving slowly despite high delivered ROI.
+        - Fast Budget Pacing: If ROI target was increased very fast by the Budget pacing module.
+        - Fast ROI Pacing (protection side): If ROI Pacing increased target too fast during a low-ROI period.
+        - Incorrect Catalog ROI Window: If high N value causes lag in updating ROI Target despite high Day ROI.
+        - Campaign status issues: If the catalog/campaign status is "paused" or "inactive" for significant periods.
+    * L2 REASONING (The "Why"): You MUST identify the driver causing the L1 issue. L2 MUST NOT repeat L1.
+        - Check "status" columns in data: Is it paused?
+        - Check history: Did a previous ROI crash cause a massive ROI Target spike (System Suppression)?
+        - Check volume: Is there naturally low click volume preventing K-trigger updates?
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
-    * SEVERITY JUSTIFICATION: Must be exactly one sentence summarizing the persistency of the issue.
+    * SEVERITY JUSTIFICATION: Exactly one sentence summarizing the persistency of the issue.
     * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
 
 Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data`,
@@ -70,10 +73,10 @@ Catalog Data:
 
 Tasks:
 1. Confirm validity based on EOD BU% trends.
-2. Identify root cause.
-3. L2 Reason: Short explanation (few words) of the driver (e.g., "Natural volume" or "Aggressive suppression").
+2. Identify Root Cause (L1).
+3. Identify L2 Reason: Short explanation (few words) of the underlying driver (e.g., "System-induced suppression" or "Natural low volume" or "Frequent campaign pauses"). DO NOT repeat the L1 root cause.
 4. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
-5. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
+5. Recommend a fix.
 6. Justify Severity: Exactly one sentence reasoning for severity level.
 
 Return JSON matching the schema.`,
@@ -141,7 +144,7 @@ export async function diagnoseBiddingPerformance(
   const validResults = results.filter((res): res is DiagnoseBiddingOutput => res !== null);
 
   if (validResults.length === 0) {
-    throw new Error("Analysis completed but no valid insights were generated. Ensure the data file contains valid catalogs and metrics.");
+    throw new Error("Analysis completed but no valid insights were generated.");
   }
 
   return validResults;
