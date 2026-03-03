@@ -92,7 +92,7 @@ export async function fetchCsvFromUrl(url: string) {
 }
 
 export async function diagnoseBiddingPerformance(
-  input: DiagnoseBiddingInput & { fileUrl?: string }
+  input: DiagnoseBiddingInput & { fileUrl?: string; pUp?: number; pDown?: number }
 ): Promise<DiagnoseBiddingOutput[]> {
   let biddingData = input.biddingData;
 
