@@ -52,20 +52,20 @@ DIAGNOSIS GUIDELINES:
 - For "Low BU Analysis":
     * CONFIRMATION: Only confirm the issue if "Catalog BU%" is low at the END OF THE DAY (final daily buckets). Check this for consistent under spending through the analysis period. Say there is no problem if BU is consistently above 80% at the end of the day.
     * ROOT CAUSE ANALYSIS (L1):
-        - Slow ROI Pacing: If ROI Target is consistently high and moving slowly despite high delivered ROI.
+        - Slow ROI Pacing: If ROI Target is consistently high and moving slowly despite high delivered ROI. Often tied to low click volume preventing K-trigger updates.
         - Fast Budget Pacing: If ROI target was increased very fast by the Budget pacing module.
         - Fast ROI Pacing (protection side): If ROI Pacing increased target too fast during a low-ROI period.
         - Incorrect Catalog ROI Window: If high N value causes lag in updating ROI Target despite high Day ROI.
         - Campaign status issues: If the catalog/campaign status is "paused" or "inactive" for significant periods.
-    * L2 REASONING (The "Why"): You MUST identify the driver causing the L1 issue. L2 MUST NOT repeat L1.
-        - Check "status" columns in data: Is it paused?
+    * L2 REASONING (The "Why"): Identify the underlying driver of the L1 issue. L2 MUST NOT repeat L1.
+        - Check "status" columns: Is it paused?
         - Check history: Did a previous ROI crash cause a massive ROI Target spike (System Suppression)?
-        - Check volume: Is there naturally low click volume preventing K-trigger updates?
+        - Check volume: Is there naturally low click volume or is it system-suppressed?
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * SEVERITY JUSTIFICATION: Exactly one sentence summarizing the persistency of the issue.
     * EVIDENCE: Give reasoning for your severity rating. Use SL ROI and ROI Target terms. DO NOT mention alpha.
 
-Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data`,
+Note: Don’t analyse the current day because this is still ongoing and you’ll see immature BU and ROI data.`,
   prompt: `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
@@ -75,13 +75,20 @@ Catalog Data:
 Tasks:
 1. Confirm validity based on EOD BU% trends.
 2. Identify Root Cause (L1).
-3. Identify L2 Reason: Short explanation (few words) of the underlying driver (e.g., "System-induced suppression" or "Natural low volume" or "Frequent campaign pauses"). DO NOT repeat the L1 root cause.
+3. Identify L2 Reason: Short explanation (few words) of the underlying driver. DO NOT repeat the L1 root cause.
 4. Evidence: Use SL ROI and ROI Target terms. DO NOT mention alpha.
 5. Recommend a fix.
 6. Justify Severity: Exactly one sentence reasoning for severity level.
 
 Return JSON matching the schema.`,
 });
+
+export async function fetchCsvFromUrl(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Failed to fetch data from Storage.");
+  const csvText = await response.text();
+  return parseBiddingCsv(csvText);
+}
 
 export async function diagnoseBiddingPerformance(
   input: DiagnoseBiddingInput & { fileUrl?: string }
@@ -90,10 +97,7 @@ export async function diagnoseBiddingPerformance(
 
   // Fetch data from storage if URL is provided
   if (input.fileUrl) {
-    const response = await fetch(input.fileUrl);
-    if (!response.ok) throw new Error("Failed to fetch data from Storage.");
-    const csvText = await response.text();
-    biddingData = parseBiddingCsv(csvText);
+    biddingData = await fetchCsvFromUrl(input.fileUrl);
   }
 
   if (!biddingData || biddingData.length === 0) {

@@ -8,10 +8,10 @@ import { doc, collection } from 'firebase/firestore';
 import { Brain, ArrowLeft, Loader2, Calendar, FileText, BarChart3, Clock, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResultsView } from '@/components/bid-brain/results-view';
-import { parseBiddingCsv } from '@/lib/csv-utils';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Toaster } from '@/components/ui/toaster';
+import { fetchCsvFromUrl } from '@/ai/flows/diagnose-bidding-performance';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
@@ -30,13 +30,13 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (session?.fileUrl) {
       setIsDataLoading(true);
-      fetch(session.fileUrl)
-        .then(res => res.text())
-        .then(csv => {
-          const parsed = parseBiddingCsv(csv);
+      fetchCsvFromUrl(session.fileUrl)
+        .then(parsed => {
           setOriginalData(parsed);
         })
-        .catch(err => console.error("Error fetching historical data:", err))
+        .catch(err => {
+          console.error("Error fetching historical data via server action:", err);
+        })
         .finally(() => setIsDataLoading(false));
     }
   }, [session?.fileUrl]);
