@@ -13,6 +13,7 @@ import {
   AnalysisTypeSchema,
   BiddingDataRowSchema
 } from './diagnose-bidding-performance.schema';
+import { parseBiddingCsv } from '@/lib/csv-utils';
 
 const LLMPromptInputSchema = z.object({
   analysisType: AnalysisTypeSchema,
@@ -83,13 +84,23 @@ Return JSON matching the schema.`,
 });
 
 export async function diagnoseBiddingPerformance(
-  input: DiagnoseBiddingInput
+  input: DiagnoseBiddingInput & { fileUrl?: string }
 ): Promise<DiagnoseBiddingOutput[]> {
-  const {analysisType, biddingData, nWindow = 1800, kTrigger = 360} = input;
+  let biddingData = input.biddingData;
+
+  // Fetch data from storage if URL is provided
+  if (input.fileUrl) {
+    const response = await fetch(input.fileUrl);
+    if (!response.ok) throw new Error("Failed to fetch data from Storage.");
+    const csvText = await response.text();
+    biddingData = parseBiddingCsv(csvText);
+  }
 
   if (!biddingData || biddingData.length === 0) {
     throw new Error("No bidding data provided for analysis.");
   }
+
+  const {analysisType, nWindow = 1800, kTrigger = 360} = input;
 
   // Filter out current day (incomplete data)
   const today = new Date().toISOString().split('T')[0];
@@ -108,16 +119,13 @@ export async function diagnoseBiddingPerformance(
   }
 
   const catalogIds = Array.from(catalogDataMap.keys());
-  // Analyze up to 20 catalogs to balance performance and depth
   const limitedCatalogIds = catalogIds.slice(0, 20);
 
-  const pUp = biddingData[0]?.p_up ?? 0.1;
-  const pDown = biddingData[0]?.p_down ?? 0.2;
+  const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
+  const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
 
   const diagnosticPromises = limitedCatalogIds.map(async (catalogId) => {
     const catalogRows = catalogDataMap.get(catalogId)!;
-    
-    // Sort chronologically for AI trend analysis
     const sortedData = [...catalogRows].sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );

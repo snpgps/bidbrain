@@ -4,11 +4,10 @@ import React, { useCallback, useState } from 'react';
 import { Upload, FileText, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { parseBiddingCsv } from '@/lib/utils';
 import { parseBiddingCsv as parseUtils } from '@/lib/csv-utils';
 
 interface CsvUploaderProps {
-  onDataLoaded: (data: any[]) => void;
+  onDataLoaded: (data: any[], file?: File) => void;
   onClear: () => void;
 }
 
@@ -30,7 +29,7 @@ export function CsvUploader({ onDataLoaded, onClear }: CsvUploaderProps) {
         const text = event.target?.result as string;
         const data = parseUtils(text);
         setRowCount(data.length);
-        onDataLoaded(data);
+        onDataLoaded(data, file);
       } catch (err: any) {
         setError(err.message || 'Failed to parse CSV');
         onClear();

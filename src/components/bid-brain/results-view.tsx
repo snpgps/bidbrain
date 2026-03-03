@@ -100,7 +100,6 @@ export function ResultsView({ results, analysisType, originalData }: ResultsView
                         </AccordionTrigger>
                         <AccordionContent className="px-6 py-4 bg-muted/20 border-t">
                           <div className="space-y-8">
-                            {/* Performance Graph Section */}
                             <div className="space-y-2">
                               <div className="flex items-center text-sm font-semibold text-foreground">
                                 <BarChart3 className="w-4 h-4 mr-2 text-primary" />
@@ -129,7 +128,7 @@ export function ResultsView({ results, analysisType, originalData }: ResultsView
                                       <Search className="w-4 h-4 mr-2" />
                                       L2 Reason
                                     </div>
-                                    <p className="text-sm leading-relaxed text-foreground bg-background p-4 rounded-lg border border-accent/20">
+                                    <p className="text-sm leading-relaxed text-foreground bg-background p-3 rounded-lg border border-accent/20">
                                       {result.l2_reason}
                                     </p>
                                   </div>
@@ -137,9 +136,9 @@ export function ResultsView({ results, analysisType, originalData }: ResultsView
                                   <div className="space-y-2">
                                     <div className="flex items-center text-sm font-semibold text-destructive">
                                       <ShieldAlert className="w-4 h-4 mr-2" />
-                                      Justification
+                                      Severity Justification
                                     </div>
-                                    <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
+                                    <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-3 rounded-lg border">
                                       {result.severity_justification}
                                     </p>
                                   </div>

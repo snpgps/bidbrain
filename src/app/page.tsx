@@ -10,13 +10,16 @@ import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.s
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { useFirestore, useUser } from '@/firebase';
+import { useFirestore, useUser, useStorage } from '@/firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 export default function BidBrainPage() {
   const db = useFirestore();
+  const storage = useStorage();
   const { user } = useUser();
   
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [biddingData, setBiddingData] = useState<any[]>([]);
   const [analysisType, setAnalysisType] = useState<'Low BU Analysis' | 'Low Delivery Analysis'>('Low BU Analysis');
   const [pUp, setPUp] = useState<number>(0.1);
@@ -29,23 +32,33 @@ export default function BidBrainPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const handleRunAnalysis = async () => {
-    if (biddingData.length === 0 || !db) return;
+    if ((!selectedFile && biddingData.length === 0) || !db || !storage) return;
 
     setIsLoading(true);
     setResults([]);
     setError(null);
 
-    // Create a unique session ID
     const newSessionId = crypto.randomUUID();
     setSessionId(newSessionId);
 
     try {
-      // 1. Create session record in Firestore
+      let fileUrl = '';
+      
+      // 1. Upload to Storage if a file is selected
+      if (selectedFile) {
+        const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
+        const uploadResult = await uploadBytes(storageRef, selectedFile);
+        fileUrl = await getDownloadURL(uploadResult.ref);
+      }
+
+      // 2. Create session record in Firestore
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
       setDoc(sessionRef, {
         id: newSessionId,
+        fileName: selectedFile?.name || 'Manual Paste',
         status: 'processing',
         createdAt: serverTimestamp(),
+        fileUrl: fileUrl,
         analysisType,
         pUp,
         pDown,
@@ -54,16 +67,13 @@ export default function BidBrainPage() {
         userId: user?.uid || 'anonymous'
       });
 
-      // 2. Run Analysis
-      const enrichedData = biddingData.map(row => ({
-        ...row,
-        p_up: pUp,
-        p_down: pDown
-      }));
-
+      // 3. Run Analysis
       const diagnosticResults = await diagnoseBiddingPerformance({
         analysisType,
-        biddingData: enrichedData,
+        biddingData: selectedFile ? [] : biddingData, // If file is in storage, pass empty array
+        fileUrl: fileUrl,
+        pUp,
+        pDown,
         nWindow,
         kTrigger
       });
@@ -72,7 +82,7 @@ export default function BidBrainPage() {
         throw new Error("No issues were confirmed in the uploaded data.");
       }
 
-      // 3. Store results in Firestore subcollection
+      // 4. Store results in Firestore subcollection
       diagnosticResults.forEach((res) => {
         const resRef = doc(db, 'analysis_sessions', newSessionId, 'results', res.catalog_id);
         setDoc(resRef, {
@@ -81,7 +91,7 @@ export default function BidBrainPage() {
         });
       });
 
-      // 4. Update session status
+      // 5. Update session status
       setDoc(sessionRef, { status: 'completed' }, { merge: true });
 
       setResults(diagnosticResults);
@@ -117,7 +127,7 @@ export default function BidBrainPage() {
             <div className="h-4 w-px bg-border hidden sm:block"></div>
             <div className="flex items-center space-x-2 text-sm font-medium text-muted-foreground">
               <Database className="w-4 h-4" />
-              <span className="hidden md:inline">Processing via Storage</span>
+              <span className="hidden md:inline">Persistent Storage</span>
             </div>
           </div>
         </div>
@@ -133,7 +143,7 @@ export default function BidBrainPage() {
               Diagnostic Bidding Agent
             </h2>
             <p className="text-muted-foreground max-w-2xl text-lg">
-              Upload catalog data for deep AI analysis and persistent tracking in Firestore.
+              Upload catalog data to Firebase Storage for deep AI analysis and session tracking.
             </p>
           </div>
         </section>
@@ -160,13 +170,15 @@ export default function BidBrainPage() {
           <div className="lg:col-span-12">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <CsvUploader
-                onDataLoaded={(data) => {
+                onDataLoaded={(data, file) => {
                   setBiddingData(data);
+                  setSelectedFile(file || null);
                   setError(null);
                   setResults([]);
                 }}
                 onClear={() => {
                   setBiddingData([]);
+                  setSelectedFile(null);
                   setResults([]);
                   setError(null);
                 }}
@@ -177,7 +189,7 @@ export default function BidBrainPage() {
                   onTypeChange={setAnalysisType}
                   onRunAnalysis={handleRunAnalysis}
                   isLoading={isLoading}
-                  disabled={biddingData.length === 0}
+                  disabled={biddingData.length === 0 && !selectedFile}
                   pUp={pUp}
                   pDown={pDown}
                   onPUpChange={setPUp}
@@ -202,8 +214,8 @@ export default function BidBrainPage() {
                 </div>
               </div>
               <div className="text-center space-y-1">
-                <p className="font-bold text-xl font-headline text-primary">Diagnosing {biddingData.length} Data Points</p>
-                <p className="text-sm text-muted-foreground">Persisting session results to Firestore...</p>
+                <p className="font-bold text-xl font-headline text-primary">Processing Diagnostic Session</p>
+                <p className="text-sm text-muted-foreground">Persisting file to Storage and results to Firestore...</p>
               </div>
             </div>
           )}
@@ -220,7 +232,7 @@ export default function BidBrainPage() {
             <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20">
               <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
               <p className="text-muted-foreground font-medium text-lg">
-                {biddingData.length > 0 ? `Ready to analyze session` : 'Upload a CSV to begin analysis'}
+                {biddingData.length > 0 || selectedFile ? `Ready to analyze session` : 'Upload a CSV to begin analysis'}
               </p>
             </div>
           )}
