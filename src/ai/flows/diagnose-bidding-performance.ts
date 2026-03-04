@@ -7,16 +7,10 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 import {
-  DiagnoseBiddingInputSchema,
-  DiagnoseBiddingInput,
   DiagnoseBiddingOutputSchema,
   DiagnoseBiddingOutput,
   AnalysisTypeSchema,
-  BiddingDataRowSchema
 } from './diagnose-bidding-performance.schema';
-import { parseBiddingCsv } from '@/lib/csv-utils';
-import { initializeFirebase } from '@/firebase';
-import { doc, setDoc } from 'firebase/firestore';
 
 const LLMPromptInputSchema = z.object({
   analysisType: AnalysisTypeSchema,
@@ -86,99 +80,57 @@ Tasks:
 Return JSON matching the schema.`,
 });
 
-export async function fetchCsvFromUrl(url: string) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Failed to fetch data from Storage.");
-  const csvText = await response.text();
-  return parseBiddingCsv(csvText);
-}
+/**
+ * Server Action to analyze a single catalog.
+ * Using individual actions is more robust against timeouts and memory limits.
+ */
+export async function analyzeCatalogAction(input: {
+  analysisType: 'Low BU Analysis' | 'Low Delivery Analysis';
+  catalogId: string;
+  catalogData: any[];
+  pUp: number;
+  pDown: number;
+  nWindow: number;
+  kTrigger: number;
+}): Promise<DiagnoseBiddingOutput | null> {
+  const { analysisType, catalogId, catalogData, pUp, pDown, nWindow, kTrigger } = input;
 
-export async function diagnoseBiddingPerformance(
-  input: DiagnoseBiddingInput & { fileUrl?: string; pUp?: number; pDown?: number; sessionId?: string }
-): Promise<DiagnoseBiddingOutput[]> {
-  let biddingData = input.biddingData;
+  const sortedData = [...catalogData].sort((a, b) => 
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
 
-  // If a file URL is provided, we fetch the data on the server to avoid large body payloads
-  if (input.fileUrl) {
-    biddingData = await fetchCsvFromUrl(input.fileUrl);
-  }
-
-  if (!biddingData || biddingData.length === 0) {
-    throw new Error("No bidding data provided for analysis.");
-  }
-
-  const {analysisType, nWindow = 1800, kTrigger = 360, sessionId} = input;
-  const { firestore } = initializeFirebase();
+  let retryCount = 0;
+  const maxRetries = 3;
   
-  // Group data by catalog ID
-  const catalogDataMap = new Map<string, z.infer<typeof BiddingDataRowSchema>[]>();
-  for (const row of biddingData) {
-    if (!row.catalog_id) continue;
-    if (!catalogDataMap.has(row.catalog_id)) {
-      catalogDataMap.set(row.catalog_id, []);
-    }
-    catalogDataMap.get(row.catalog_id)?.push(row);
-  }
+  while (retryCount < maxRetries) {
+    try {
+      const { output } = await diagnoseBiddingPrompt({
+        analysisType,
+        catalogDataJson: JSON.stringify(sortedData, null, 2),
+        catalog_id: catalogId,
+        pUp,
+        pDown,
+        nWindow,
+        kTrigger,
+      });
 
-  // Take a representative sample to avoid extreme batch durations
-  const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
-  const pUp = biddingData[0]?.p_up ?? input.pUp ?? 0.1;
-  const pDown = biddingData[0]?.p_down ?? input.pDown ?? 0.2;
-
-  const validResults: DiagnoseBiddingOutput[] = [];
-
-  // SEQUENTIAL PROCESSING ON BACKEND with internal retry logic for quotas
-  for (const catalogId of catalogIds) {
-    const catalogRows = catalogDataMap.get(catalogId)!;
-    const sortedData = [...catalogRows].sort((a, b) => 
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-
-    let retryCount = 0;
-    let success = false;
-    
-    while (retryCount < 3 && !success) {
-      try {
-        const {output} = await diagnoseBiddingPrompt({
-          analysisType,
-          catalogDataJson: JSON.stringify(sortedData, null, 2),
-          catalog_id: catalogId,
-          pUp,
-          pDown,
-          nWindow,
-          kTrigger,
-        });
-
-        if (output) {
-          const result = { ...output, catalog_id: catalogId };
-          validResults.push(result);
-          
-          // INCREMENTAL STORAGE: Save to Firestore immediately
-          if (sessionId && firestore) {
-            const resRef = doc(firestore, 'analysis_sessions', sessionId, 'results', catalogId);
-            setDoc(resRef, { ...result, timestamp: new Date().toISOString() }).catch(e => {
-               // Silently catch permission errors to not break the batch
-            });
-          }
-          
-          success = true;
-        }
-      } catch (err: any) {
-        if (err.message.includes('429') || err.message.includes('Quota')) {
-          retryCount++;
-          if (retryCount < 3) {
-            // Wait with exponential backoff (4s, 8s, 16s)
-            await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 4000));
-          }
+      if (output) {
+        return { ...output, catalog_id: catalogId };
+      }
+      return null;
+    } catch (err: any) {
+      if (err.message.includes('429') || err.message.includes('Quota')) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          // Exponential backoff: 5s, 10s, 20s
+          await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 5000));
         } else {
-          break;
+          throw err;
         }
+      } else {
+        throw err;
       }
     }
-    
-    // Safety delay between catalogs to prevent burst quota hits
-    await new Promise(r => setTimeout(r, 1500));
   }
-
-  return validResults;
+  return null;
 }

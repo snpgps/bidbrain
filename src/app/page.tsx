@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Brain, Settings2, BarChart3, Database, ShieldCheck, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Terminal, CheckCircle2 } from 'lucide-react';
+import { Brain, BarChart3, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Terminal } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
-import { diagnoseBiddingPerformance } from '@/ai/flows/diagnose-bidding-performance';
+import { analyzeCatalogAction } from '@/ai/flows/diagnose-bidding-performance';
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
@@ -76,7 +76,10 @@ export default function BidBrainPage() {
   };
 
   const handleRunAnalysis = async () => {
-    if ((!selectedFile && biddingData.length === 0) || !db || !storage) return;
+    if ((!selectedFile && biddingData.length === 0) || !db || !storage) {
+      setError("Please upload a file or data before running diagnostics.");
+      return;
+    }
 
     setIsLoading(true);
     setResults([]);
@@ -89,13 +92,14 @@ export default function BidBrainPage() {
     try {
       let fileUrl = '';
       if (selectedFile) {
-        addLog(`Uploading file: ${selectedFile.name}...`, 'info');
+        addLog(`Uploading file to Cloud Storage...`, 'info');
         const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
         const uploadResult = await uploadBytes(storageRef, selectedFile);
         fileUrl = await getDownloadURL(uploadResult.ref);
-        addLog(`File uploaded successfully to Storage.`, 'success');
+        addLog(`File uploaded successfully.`, 'success');
       }
 
+      // 1. Create the session metadata in Firestore
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
       const sessionData = {
         id: newSessionId,
@@ -120,34 +124,72 @@ export default function BidBrainPage() {
       });
       addLog(`Session record created in Firestore.`, 'success');
 
-      addLog(`Handoff to Backend: Analyzing catalogs in robust batch...`, 'info');
-      addLog(`(This avoids large body payload issues and handles retries)`, 'warning');
-
-      // OPTIMIZATION: If we have a fileUrl, we don't send the raw biddingData array to avoid 1MB body limit
-      const batchResults = await diagnoseBiddingPerformance({
-        analysisType,
-        biddingData: fileUrl ? [] : (biddingData.length > 0 ? biddingData : []),
-        fileUrl: fileUrl,
-        nWindow,
-        kTrigger,
-        pUp,
-        pDown,
-        sessionId: newSessionId
-      });
-
-      if (batchResults && batchResults.length > 0) {
-        setResults(batchResults);
-        addLog(`Successfully analyzed ${batchResults.length} catalogs on the backend.`, 'success');
-        
-        setDoc(sessionRef, { status: 'completed' }, { merge: true });
-        addLog(`Session completed. All diagnostics stored.`, 'success');
-      } else {
-        throw new Error("No results were generated. AI engine might have hit a fatal quota or timeout.");
+      // 2. Group data by Catalog ID for sequential processing
+      const catalogDataMap = new Map<string, any[]>();
+      for (const row of biddingData) {
+        if (!row.catalog_id) continue;
+        if (!catalogDataMap.has(row.catalog_id)) {
+          catalogDataMap.set(row.catalog_id, []);
+        }
+        catalogDataMap.get(row.catalog_id)?.push(row);
       }
+
+      const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
+      addLog(`Starting batch analysis for ${catalogIds.length} unique catalogs...`, 'info');
+
+      const finalResults: DiagnoseBiddingOutput[] = [];
+
+      // 3. Sequential backend loop with real-time logging and client-side storage
+      for (let i = 0; i < catalogIds.length; i++) {
+        const catalogId = catalogIds[i];
+        addLog(`[${i + 1}/${catalogIds.length}] Handoff to AI: Analyzing Catalog ${catalogId}...`, 'info');
+
+        try {
+          const result = await analyzeCatalogAction({
+            analysisType,
+            catalogId,
+            catalogData: catalogDataMap.get(catalogId) || [],
+            pUp,
+            pDown,
+            nWindow,
+            kTrigger
+          });
+
+          if (result) {
+            finalResults.push(result);
+            setResults(prev => [...prev, result]);
+            addLog(`Successfully analyzed ${catalogId}. Storing result...`, 'success');
+
+            // Save individual result to Firestore subcollection immediately
+            const resultRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
+            await setDoc(resultRef, { 
+              ...result, 
+              timestamp: new Date().toISOString() 
+            }).catch(e => {
+              addLog(`Warning: Failed to persist result for ${catalogId} to Firestore.`, 'warning');
+            });
+          }
+        } catch (err: any) {
+          addLog(`Error analyzing ${catalogId}: ${err.message}`, 'error');
+          // We continue to the next catalog if one fails
+        }
+
+        // Deliberate delay to avoid burst quota hits
+        if (i < catalogIds.length - 1) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+
+      // 4. Update session status
+      await setDoc(sessionRef, { 
+        status: finalResults.length > 0 ? 'completed' : 'failed' 
+      }, { merge: true });
+      
+      addLog(`Batch complete. Analyzed ${finalResults.length} catalogs successfully.`, 'success');
 
     } catch (err: any) {
       console.error("Diagnostic Run Error:", err);
-      setError(err.message || "An unexpected error occurred during AI diagnostics.");
+      setError(err.message || "An unexpected error occurred.");
       addLog(`FATAL ERROR: ${err.message}`, 'error');
       if (db) {
         const sessionRef = doc(db, 'analysis_sessions', newSessionId);
@@ -220,7 +262,7 @@ export default function BidBrainPage() {
         {error && (
           <Alert variant="destructive" className="bg-destructive/5 border-destructive/20">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle className="font-bold">Process Update</AlertTitle>
+            <AlertTitle className="font-bold">Diagnostic Interrupted</AlertTitle>
             <AlertDescription className="space-y-3">
               <p className="text-sm opacity-90">{error}</p>
               <Button 
@@ -229,7 +271,7 @@ export default function BidBrainPage() {
                 onClick={handleRunAnalysis}
                 className="bg-white hover:bg-destructive/10 border-destructive/30 text-destructive h-8 font-semibold"
               >
-                Retry Batch
+                Resume Analysis
               </Button>
             </AlertDescription>
           </Alert>
@@ -284,8 +326,8 @@ export default function BidBrainPage() {
                   </div>
                 </div>
                 <div className="text-center space-y-1">
-                  <p className="font-bold text-xl font-headline text-primary">Backend Batch Processing</p>
-                  <p className="text-sm text-muted-foreground">AI is analyzing catalogs with internal retry logic...</p>
+                  <p className="font-bold text-xl font-headline text-primary">Live AI Diagnostics</p>
+                  <p className="text-sm text-muted-foreground">Analyzing catalogs and saving results in real-time...</p>
                 </div>
               </div>
               
@@ -294,12 +336,7 @@ export default function BidBrainPage() {
                   <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Terminal className="w-4 h-4 text-emerald-400" />
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Process Logs</span>
-                    </div>
-                    <div className="flex space-x-1.5">
-                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
-                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
-                      <div className="w-2 h-2 rounded-full bg-slate-700"></div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Process Terminal</span>
                     </div>
                   </div>
                   <ScrollArea className="h-[300px] p-4 font-code text-[11px] leading-relaxed">
@@ -313,9 +350,6 @@ export default function BidBrainPage() {
                             log.type === 'warning' ? 'text-amber-400' :
                             'text-slate-300'
                           }>
-                            {log.type === 'success' && '✓ '}
-                            {log.type === 'error' && '✖ '}
-                            {log.type === 'warning' && '! '}
                             {log.message}
                           </span>
                         </div>
@@ -340,7 +374,7 @@ export default function BidBrainPage() {
             <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20">
               <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
               <p className="text-muted-foreground font-medium text-lg">
-                {biddingData.length > 0 || selectedFile ? `Ready to analyze session` : 'Upload a CSV to begin analysis'}
+                {biddingData.length > 0 || selectedFile ? `Ready for Batch Run` : 'Upload a CSV to begin analysis'}
               </p>
             </div>
           )}
