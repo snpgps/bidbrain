@@ -137,7 +137,7 @@ export async function diagnoseBiddingPerformance(
     let retryCount = 0;
     let success = false;
     
-    while (retryCount < 2 && !success) {
+    while (retryCount < 3 && !success) {
       try {
         const {output} = await diagnoseBiddingPrompt({
           analysisType,
@@ -166,9 +166,9 @@ export async function diagnoseBiddingPerformance(
       } catch (err: any) {
         if (err.message.includes('429') || err.message.includes('Quota')) {
           retryCount++;
-          if (retryCount < 2) {
-            // Wait with exponential backoff on backend
-            await new Promise(r => setTimeout(r, 4000));
+          if (retryCount < 3) {
+            // Wait with exponential backoff on backend (4s, 8s, 16s)
+            await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 4000));
           }
         } else {
           // Other errors, skip catalog
@@ -178,7 +178,7 @@ export async function diagnoseBiddingPerformance(
     }
     
     // Safety delay to prevent hitting RPM limits immediately
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 1500));
   }
 
   return validResults;
