@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Brain, BarChart3, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Terminal } from 'lucide-react';
+import { Brain, BarChart3, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Terminal, Zap } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
@@ -87,26 +87,24 @@ export default function BidBrainPage() {
     setLogs([]);
 
     const newSessionId = crypto.randomUUID();
-    addLog(`Initialized new diagnostic session: ${newSessionId}`, 'info');
+    addLog(`Initialized Parallel Diagnostic Engine: ${newSessionId}`, 'info');
 
     try {
       let fileUrl = '';
       if (selectedFile) {
-        addLog(`Uploading file to Cloud Storage...`, 'info');
+        addLog(`Persisting source file to Cloud Storage...`, 'info');
         const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
         const uploadResult = await uploadBytes(storageRef, selectedFile);
         fileUrl = await getDownloadURL(uploadResult.ref);
-        addLog(`File uploaded successfully.`, 'success');
       }
 
-      // 1. Create the session metadata in Firestore
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
       const sessionData = {
         id: newSessionId,
         fileName: selectedFile?.name || 'Manual Paste',
         status: 'processing',
         createdAt: serverTimestamp(),
-        fileUrl: fileUrl,
+        fileUrl,
         analysisType,
         pUp,
         pDown,
@@ -115,16 +113,10 @@ export default function BidBrainPage() {
         userId: user?.uid || 'anonymous'
       };
 
-      await setDoc(sessionRef, sessionData).catch(async (e) => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: sessionRef.path,
-          operation: 'create',
-          requestResourceData: sessionData,
-        }));
-      });
-      addLog(`Session record created in Firestore.`, 'success');
+      await setDoc(sessionRef, sessionData);
+      addLog(`Session record created. Starting multi-threaded analysis...`, 'success');
 
-      // 2. Group data by Catalog ID for sequential processing
+      // Group data by Catalog ID
       const catalogDataMap = new Map<string, any[]>();
       for (const row of biddingData) {
         if (!row.catalog_id) continue;
@@ -134,67 +126,63 @@ export default function BidBrainPage() {
         catalogDataMap.get(row.catalog_id)?.push(row);
       }
 
-      const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 15);
-      addLog(`Starting batch analysis for ${catalogIds.length} unique catalogs...`, 'info');
-
+      // Limit to 200 catalogs for safety, process in batches of 5 for speed
+      const catalogIds = Array.from(catalogDataMap.keys()).slice(0, 200);
+      const BATCH_SIZE = 5;
       const finalResults: DiagnoseBiddingOutput[] = [];
 
-      // 3. Sequential backend loop with real-time logging and client-side storage
-      for (let i = 0; i < catalogIds.length; i++) {
-        const catalogId = catalogIds[i];
-        addLog(`[${i + 1}/${catalogIds.length}] Handoff to AI: Analyzing Catalog ${catalogId}...`, 'info');
+      addLog(`Processing ${catalogIds.length} catalogs in parallel batches of ${BATCH_SIZE}...`, 'info');
 
-        try {
-          const result = await analyzeCatalogAction({
-            analysisType,
-            catalogId,
-            catalogData: catalogDataMap.get(catalogId) || [],
-            pUp,
-            pDown,
-            nWindow,
-            kTrigger
-          });
+      for (let i = 0; i < catalogIds.length; i += BATCH_SIZE) {
+        const batch = catalogIds.slice(i, i + BATCH_SIZE);
+        addLog(`Spinning up thread batch ${Math.floor(i / BATCH_SIZE) + 1}...`, 'info');
 
-          if (result) {
-            finalResults.push(result);
-            setResults(prev => [...prev, result]);
-            addLog(`Successfully analyzed ${catalogId}. Storing result...`, 'success');
-
-            // Save individual result to Firestore subcollection immediately
-            const resultRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
-            await setDoc(resultRef, { 
-              ...result, 
-              timestamp: new Date().toISOString() 
-            }).catch(e => {
-              addLog(`Warning: Failed to persist result for ${catalogId} to Firestore.`, 'warning');
+        const batchPromises = batch.map(async (catalogId) => {
+          try {
+            const result = await analyzeCatalogAction({
+              analysisType,
+              catalogId,
+              catalogData: catalogDataMap.get(catalogId) || [],
+              pUp,
+              pDown,
+              nWindow,
+              kTrigger
             });
-          }
-        } catch (err: any) {
-          addLog(`Error analyzing ${catalogId}: ${err.message}`, 'error');
-          // We continue to the next catalog if one fails
-        }
 
-        // Deliberate delay to avoid burst quota hits
-        if (i < catalogIds.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
+            if (result) {
+              // Immediate persistence for each successful catalog
+              const resultRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
+              setDoc(resultRef, { ...result, timestamp: new Date().toISOString() });
+              
+              addLog(`Analyzed ${catalogId} successfully.`, 'success');
+              return result;
+            }
+          } catch (err: any) {
+            addLog(`Error on catalog ${catalogId}: ${err.message}`, 'error');
+            return null;
+          }
+          return null;
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+        const validResults = batchResults.filter((r): r is DiagnoseBiddingOutput => r !== null);
+        
+        finalResults.push(...validResults);
+        setResults(prev => [...prev, ...validResults]);
+
+        // Small delay between batches to respect RPM
+        if (i + BATCH_SIZE < catalogIds.length) {
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
 
-      // 4. Update session status
-      await setDoc(sessionRef, { 
-        status: finalResults.length > 0 ? 'completed' : 'failed' 
-      }, { merge: true });
-      
-      addLog(`Batch complete. Analyzed ${finalResults.length} catalogs successfully.`, 'success');
+      await setDoc(sessionRef, { status: 'completed' }, { merge: true });
+      addLog(`Analysis Complete. ${finalResults.length}/${catalogIds.length} catalogs processed successfully.`, 'success');
 
     } catch (err: any) {
-      console.error("Diagnostic Run Error:", err);
+      console.error("Batch Error:", err);
       setError(err.message || "An unexpected error occurred.");
-      addLog(`FATAL ERROR: ${err.message}`, 'error');
-      if (db) {
-        const sessionRef = doc(db, 'analysis_sessions', newSessionId);
-        setDoc(sessionRef, { status: 'failed' }, { merge: true });
-      }
+      addLog(`FATAL BATCH ERROR: ${err.message}`, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -227,7 +215,6 @@ export default function BidBrainPage() {
               <div className="flex items-center space-x-3">
                 <div className="hidden md:block text-right">
                   <p className="text-xs font-bold text-foreground leading-none">{user.displayName}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Active Session</p>
                 </div>
                 <Avatar className="h-8 w-8 border">
                   <AvatarImage src={user.photoURL || ''} />
@@ -249,31 +236,19 @@ export default function BidBrainPage() {
 
       <main className="container mx-auto px-4 py-8 space-y-8 max-w-5xl">
         <section className="space-y-4">
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-accent/10 text-accent text-xs font-bold uppercase tracking-wider">
-            Bidding Performance Engine
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 text-xs font-bold uppercase tracking-wider">
+            <Zap className="w-3 h-3 mr-1.5" /> Parallel Engine Active
           </div>
-          <div className="space-y-2">
-            <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
-              Diagnostic Bidding Agent
-            </h2>
-          </div>
+          <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
+            High-Throughput Diagnostic Agent
+          </h2>
         </section>
 
         {error && (
           <Alert variant="destructive" className="bg-destructive/5 border-destructive/20">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle className="font-bold">Diagnostic Interrupted</AlertTitle>
-            <AlertDescription className="space-y-3">
-              <p className="text-sm opacity-90">{error}</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleRunAnalysis}
-                className="bg-white hover:bg-destructive/10 border-destructive/30 text-destructive h-8 font-semibold"
-              >
-                Resume Analysis
-              </Button>
-            </AlertDescription>
+            <AlertTitle className="font-bold">Process Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
@@ -294,60 +269,53 @@ export default function BidBrainPage() {
                   setError(null);
                 }}
               />
-              <div className="space-y-4">
-                <AnalysisControls
-                  analysisType={analysisType}
-                  onTypeChange={setAnalysisType}
-                  onRunAnalysis={handleRunAnalysis}
-                  isLoading={isLoading}
-                  disabled={biddingData.length === 0 && !selectedFile}
-                  pUp={pUp}
-                  pDown={pDown}
-                  onPUpChange={setPUp}
-                  onPDownChange={setPDown}
-                  nWindow={nWindow}
-                  onNWindowChange={setNWindow}
-                  kTrigger={kTrigger}
-                  onKTriggerChange={setKTrigger}
-                />
-              </div>
+              <AnalysisControls
+                analysisType={analysisType}
+                onTypeChange={setAnalysisType}
+                onRunAnalysis={handleRunAnalysis}
+                isLoading={isLoading}
+                disabled={biddingData.length === 0 && !selectedFile}
+                pUp={pUp}
+                pDown={pDown}
+                onPUpChange={setPUp}
+                onPDownChange={setPDown}
+                nWindow={nWindow}
+                onNWindowChange={setNWindow}
+                kTrigger={kTrigger}
+                onKTriggerChange={setKTrigger}
+              />
             </div>
           </div>
         </section>
 
-        <section className="space-y-6 pt-4">
+        <section className="space-y-6">
           {isLoading && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-7 flex flex-col items-center justify-center py-20 space-y-4 bg-card rounded-2xl border border-border shadow-sm">
-                <div className="relative">
-                  <BarChart3 className="w-12 h-12 text-primary/20 animate-pulse" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                <div className="text-center">
+                  <p className="font-bold text-xl text-primary">Parallel Processing Live</p>
+                  <p className="text-sm text-muted-foreground">Executing batch threads and persisting results...</p>
+                  <div className="mt-4 text-xs font-mono bg-muted px-2 py-1 rounded">
+                    Batch Progress: {results.length} catalogs saved
                   </div>
-                </div>
-                <div className="text-center space-y-1">
-                  <p className="font-bold text-xl font-headline text-primary">Live AI Diagnostics</p>
-                  <p className="text-sm text-muted-foreground">Analyzing catalogs and saving results in real-time...</p>
                 </div>
               </div>
               
               <div className="lg:col-span-5">
-                <Card className="bg-slate-950 border-slate-800 shadow-xl overflow-hidden">
-                  <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Terminal className="w-4 h-4 text-emerald-400" />
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Process Terminal</span>
-                    </div>
+                <Card className="bg-slate-950 border-slate-800 shadow-xl">
+                  <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center space-x-2">
+                    <Terminal className="w-4 h-4 text-emerald-400" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Process Logs</span>
                   </div>
-                  <ScrollArea className="h-[300px] p-4 font-code text-[11px] leading-relaxed">
-                    <div className="space-y-2">
+                  <ScrollArea className="h-[300px] p-4 font-code text-[11px]">
+                    <div className="space-y-1.5">
                       {logs.map((log, i) => (
                         <div key={i} className="flex space-x-3">
-                          <span className="text-slate-500 whitespace-nowrap">[{log.timestamp}]</span>
+                          <span className="text-slate-500 whitespace-nowrap">{log.timestamp}</span>
                           <span className={
                             log.type === 'success' ? 'text-emerald-400' :
                             log.type === 'error' ? 'text-rose-400' :
-                            log.type === 'warning' ? 'text-amber-400' :
                             'text-slate-300'
                           }>
                             {log.message}
@@ -370,11 +338,11 @@ export default function BidBrainPage() {
             />
           )}
 
-          {!isLoading && results.length === 0 && !error && (
+          {!isLoading && results.length === 0 && (
             <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20">
               <BarChart3 className="w-12 h-12 text-muted-foreground/20 mx-auto mb-4" />
               <p className="text-muted-foreground font-medium text-lg">
-                {biddingData.length > 0 || selectedFile ? `Ready for Batch Run` : 'Upload a CSV to begin analysis'}
+                {biddingData.length > 0 ? `Ready to analyze ${biddingData.length} rows` : 'Upload data to begin'}
               </p>
             </div>
           )}

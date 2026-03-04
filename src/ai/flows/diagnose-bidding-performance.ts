@@ -55,11 +55,11 @@ DIAGNOSIS GUIDELINES:
         - Fast Budget Pacing: ROI target increased too rapidly to curb spend.
         - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
             * L2 DRIVERS: 
-              a) Significant SL ROI increase by the seller (check if SL ROI jumped significantly, causing a high error in the control loop).
-              b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small for the volatility, leading to "false" protection triggers.
-        - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low, causing incorrect target increases.
+              a) Significant SL ROI increase by the seller.
+              b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small.
+        - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low.
         - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
-        - Outlier days: Spends behaved differently than they usually do because of sale or any other click mix change reason, leading to low ROI on the day. This leads to a drop in Catalog ROI, leading to an increase in ROI target over multiple days. A high ROI target can also result in low clicks and low ROI as we’re not exploring enough. This in turn puts the catalog in a low clicks and low ROI loop.
+        - Outlier days: Spends behaved differently (sale/click mix change) leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase. This puts the catalog in a "low clicks, low ROI" death loop.
     * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
@@ -82,7 +82,6 @@ Return JSON matching the schema.`,
 
 /**
  * Server Action to analyze a single catalog.
- * Using individual actions is more robust against timeouts and memory limits.
  */
 export async function analyzeCatalogAction(input: {
   analysisType: 'Low BU Analysis' | 'Low Delivery Analysis';
@@ -122,8 +121,8 @@ export async function analyzeCatalogAction(input: {
       if (err.message.includes('429') || err.message.includes('Quota')) {
         retryCount++;
         if (retryCount < maxRetries) {
-          // Exponential backoff: 5s, 10s, 20s
-          await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 5000));
+          // Exponential backoff
+          await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 3000));
         } else {
           throw err;
         }
