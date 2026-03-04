@@ -58,8 +58,8 @@ DIAGNOSIS GUIDELINES:
               a) Significant SL ROI increase by the seller.
               b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small.
         - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low.
-        - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
         - Outlier days: Spends behaved differently (sale/click mix change) leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase. This puts the catalog in a "low clicks, low ROI" death loop.
+        - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
     * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
     * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
     * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
@@ -132,4 +132,22 @@ export async function analyzeCatalogAction(input: {
     }
   }
   return null;
+}
+
+/**
+ * Server Action to fetch and parse CSV data from a URL.
+ */
+export async function fetchCsvFromUrl(url: string): Promise<any[]> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to fetch file: ${response.statusText}`);
+    const text = await response.text();
+    
+    // Dynamically import to avoid circular dependencies or client-side issues
+    const { parseBiddingCsv } = await import('@/lib/csv-utils');
+    return parseBiddingCsv(text);
+  } catch (err) {
+    console.error("Error fetching historical CSV:", err);
+    throw err;
+  }
 }
