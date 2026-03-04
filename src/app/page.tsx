@@ -93,7 +93,7 @@ export default function BidBrainPage() {
         const storageRef = ref(storage, `uploads/${newSessionId}/${selectedFile.name}`);
         const uploadResult = await uploadBytes(storageRef, selectedFile);
         fileUrl = await getDownloadURL(uploadResult.ref);
-        addLog(`File uploaded successfully.`, 'success');
+        addLog(`File uploaded successfully to Storage.`, 'success');
       }
 
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
@@ -121,11 +121,12 @@ export default function BidBrainPage() {
       addLog(`Session record created in Firestore.`, 'success');
 
       addLog(`Handoff to Backend: Analyzing catalogs in robust batch...`, 'info');
-      addLog(`(This may take 1-2 minutes for deep AI diagnostics)`, 'warning');
+      addLog(`(This avoids large body payload issues and handles retries)`, 'warning');
 
+      // OPTIMIZATION: If we have a fileUrl, we don't send the raw biddingData array to avoid 1MB body limit
       const batchResults = await diagnoseBiddingPerformance({
         analysisType,
-        biddingData: biddingData.length > 0 ? biddingData : [],
+        biddingData: fileUrl ? [] : (biddingData.length > 0 ? biddingData : []),
         fileUrl: fileUrl,
         nWindow,
         kTrigger,

@@ -98,6 +98,7 @@ export async function diagnoseBiddingPerformance(
 ): Promise<DiagnoseBiddingOutput[]> {
   let biddingData = input.biddingData;
 
+  // If a file URL is provided, we fetch the data on the server to avoid large body payloads
   if (input.fileUrl) {
     biddingData = await fetchCsvFromUrl(input.fileUrl);
   }
@@ -126,14 +127,13 @@ export async function diagnoseBiddingPerformance(
 
   const validResults: DiagnoseBiddingOutput[] = [];
 
-  // SEQUENTIAL PROCESSING ON BACKEND
+  // SEQUENTIAL PROCESSING ON BACKEND with internal retry logic for quotas
   for (const catalogId of catalogIds) {
     const catalogRows = catalogDataMap.get(catalogId)!;
     const sortedData = [...catalogRows].sort((a, b) => 
       new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
-    // AI Call with internal retry logic
     let retryCount = 0;
     let success = false;
     
@@ -153,11 +153,11 @@ export async function diagnoseBiddingPerformance(
           const result = { ...output, catalog_id: catalogId };
           validResults.push(result);
           
-          // INCREMENTAL STORAGE: Save to Firestore immediately if sessionId is provided
+          // INCREMENTAL STORAGE: Save to Firestore immediately
           if (sessionId && firestore) {
             const resRef = doc(firestore, 'analysis_sessions', sessionId, 'results', catalogId);
             setDoc(resRef, { ...result, timestamp: new Date().toISOString() }).catch(e => {
-               // Silently catch permission errors on individual saves to not break the batch
+               // Silently catch permission errors to not break the batch
             });
           }
           
@@ -167,17 +167,16 @@ export async function diagnoseBiddingPerformance(
         if (err.message.includes('429') || err.message.includes('Quota')) {
           retryCount++;
           if (retryCount < 3) {
-            // Wait with exponential backoff on backend (4s, 8s, 16s)
+            // Wait with exponential backoff (4s, 8s, 16s)
             await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 4000));
           }
         } else {
-          // Other errors, skip catalog
           break;
         }
       }
     }
     
-    // Safety delay to prevent hitting RPM limits immediately
+    // Safety delay between catalogs to prevent burst quota hits
     await new Promise(r => setTimeout(r, 1500));
   }
 
