@@ -1,7 +1,7 @@
 'use server';
 /**
- * @fileOverview This file implements a Genkit flow for diagnosing bidding performance issues.
- * It handles multi-campaign sequential logic where a catalog may belong to multiple campaigns.
+ * @fileOverview This file implements a Genkit flow for high-speed bidding performance diagnostics.
+ * It uses the latest Gemini 2.0 Flash model for rapid analysis.
  */
 
 import {ai} from '@/ai/genkit';
@@ -16,66 +16,45 @@ const LLMPromptInputSchema = z.object({
   analysisType: AnalysisTypeSchema,
   catalogDataJson: z
     .string()
-    .describe('JSON string of time-bucket level data for a single catalog. May contain multiple campaigns.'),
+    .describe('JSON string of time-bucket level data for a single catalog.'),
   catalog_id: z
     .string()
     .describe('The ID of the catalog for which the data is provided.'),
-  pUp: z.number().describe('The P_up constant used in the system.'),
-  pDown: z.number().describe('The P_down constant used in the system.'),
-  nWindow: z.number().describe('The window size N for ROI stability.'),
-  kTrigger: z.number().describe('The trigger K for update frequency.'),
+  pUp: z.number().describe('The P_up constant.'),
+  pDown: z.number().describe('The P_down constant.'),
+  nWindow: z.number().describe('The window size N.'),
+  kTrigger: z.number().describe('The trigger K.'),
 });
 
 const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
   input: { schema: LLMPromptInputSchema },
   output: { schema: DiagnoseBiddingOutputSchema },
-  system: `You are a senior Ads Bidding PM and Data Scientist. You are diagnosing a bidding control system that regulates performance by adjusting the **ROI Target**.
+  system: `You are a senior Ads Bidding PM. You are diagnosing a bidding control system.
 
 CORE CONTROL LOGIC:
-1. Bid Formula: Bid = pCVR * (AOV / ROI_Target).
-2. ROI Target Dynamics:
-   - ROI Pacing to increase spending: When Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target.
-   - ROI Pacing to protect delivery (Protection Side): When Catalog_ROI < SL_ROI, INCREASE ROI_Target to protect margins.
-   - Budget Pacing to reduce spending: When Catalog_ROI > SL_ROI and BU > BU Ideal, INCREASE ROI_Target.
-3. Reliability Window (N): ROI stability for Catalog_ROI is calculated over N = {{{nWindow}}} clicks.
-4. Update Trigger (K): ROI_Target is updated every K = {{{kTrigger}}} clicks.
-5. Asymmetric Sensitivity: P_down ({{{pDown}}}) reacts fast to protect ROI; P_up ({{{pUp}}}) reacts slowly to scale spend.
+1. ROI Pacing: If Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target to scale.
+2. Protection: If Catalog_ROI < SL_ROI, INCREASE ROI_Target rapidly (P_down) to protect margins.
+3. Reliability: Window N = {{{nWindow}}} clicks. Update Trigger K = {{{kTrigger}}} clicks.
 
-MULTI-CAMPAIGN & CLICK VOLUME ANALYSIS:
-- A single Catalog ID may be part of multiple campaigns running SEQUENTIALLY.
-- **CRITICAL**: You MUST sum up clicks across ALL campaigns for the catalog to determine total daily volume.
-- **DO NOT** diagnose "low click volume" if the AGGREGATE catalog clicks for the day meet or exceed the K-trigger ({{{kTrigger}}}).
+DIAGNOSIS CATEGORIES (ROOT CAUSE):
+- Slow ROI Pacing: ROI Target is high and moving slowly.
+- Fast Budget Pacing: ROI target increased too rapidly.
+- Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
+- Outlier Day / Performance Death Loop: Spend behaved differently (sale/click mix) leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase. This puts the catalog in a "low clicks, low ROI" death loop.
+- Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI remains low.
+- Low click volume for K-trigger: Total daily clicks < K trigger.
+- Campaign status issues: Paused or inactive.
 
-DIAGNOSIS GUIDELINES:
-- For "Low BU Analysis":
-    * CONFIRMATION: Only confirm the issue if "Catalog BU%" is consistently low at the END OF THE DAY (final buckets).
-    * ROOT CAUSES (L1):
-        - Slow ROI Pacing: ROI Target is high and moving slowly.
-        - Fast Budget Pacing: ROI target increased too rapidly to curb spend.
-        - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
-            * L2 DRIVERS: 
-              a) Significant SL ROI increase by the seller.
-              b) Unstable Catalog ROI because the window N ({{{nWindow}}}) is too small.
-        - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI (windowed) remains low.
-        - Outlier days: Spends behaved differently (sale/click mix change) leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase. This puts the catalog in a "low clicks, low ROI" death loop.
-        - Catalog/Campaign Status: Check for "paused" or "inactive" status in the data.
-    * L2 REASONING: Identify the underlying driver causing the L1 behavior. Do NOT repeat L1.
-    * SEVERITY: "High" only if end-of-day Low BU persists across multiple days.
-    * EVIDENCE: Use SL ROI and ROI Target terms. DO NOT mention alpha. Reference AGGREGATE daily clicks to justify volume claims.`,
+ANALYSIS TASKS:
+1. Aggregate clicks across all campaign buckets for the day.
+2. If Catalog_ROI is consistently below SL_ROI, check for "Outlier Day" spikes that triggered "Performance Death Loop".
+3. Use SL ROI and ROI Target terms in evidence. Reference AGGREGATE daily clicks.`,
   prompt: `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
-Catalog Data (sorted by timestamp):
+Catalog Data:
 {{{catalogDataJson}}}
-
-Tasks:
-1. Confirm validity based on EOD BU% trends and multi-campaign sequential flow.
-2. Identify Root Cause (L1).
-3. Identify L2 Reason: Focus on SL ROI spikes or window stability if protection side was triggered.
-4. Evidence: Use SL ROI and ROI Target terms. Reference AGGREGATE daily clicks.
-5. Recommend a fix (e.g., "Decrease P_down", "Increase P_up", "Increase N").
-6. Justify Severity at the catalog level based on persistency.
 
 Return JSON matching the schema.`,
 });
@@ -99,9 +78,9 @@ export async function analyzeCatalogAction(input: {
   );
 
   let retryCount = 0;
-  const maxRetries = 3;
+  const maxRetries = 2;
   
-  while (retryCount < maxRetries) {
+  while (retryCount <= maxRetries) {
     try {
       const { output } = await diagnoseBiddingPrompt({
         analysisType,
@@ -120,9 +99,8 @@ export async function analyzeCatalogAction(input: {
     } catch (err: any) {
       if (err.message.includes('429') || err.message.includes('Quota')) {
         retryCount++;
-        if (retryCount < maxRetries) {
-          // Exponential backoff
-          await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 3000));
+        if (retryCount <= maxRetries) {
+          await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 2000));
         } else {
           throw err;
         }
@@ -142,8 +120,6 @@ export async function fetchCsvFromUrl(url: string): Promise<any[]> {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Failed to fetch file: ${response.statusText}`);
     const text = await response.text();
-    
-    // Dynamically import to avoid circular dependencies or client-side issues
     const { parseBiddingCsv } = await import('@/lib/csv-utils');
     return parseBiddingCsv(text);
   } catch (err) {

@@ -15,7 +15,7 @@ export const BiddingDataRowSchema = z.object({
   day_roi: z.number().describe('Daily ROI.'),
   spend: z.number().describe('Spend for the catalog.'),
   alpha: z.number().describe('Alpha parameter.'),
-}).catchall(z.any()); // Allow any additional columns from the CSV (status, updates, etc.)
+}).catchall(z.any());
 
 export const AnalysisTypeSchema = z
   .union([
@@ -49,14 +49,15 @@ export const DiagnoseBiddingOutputSchema = z.object({
       'Budget guardrail interference',
       'Auction limitations',
       'Campaign status issues',
+      'Outlier Day / Performance Death Loop',
     ])
     .describe('The primary root cause of the performance issue.'),
   l2_reason: z
     .string()
-    .describe('Secondary analysis explaining why the root cause occurred in a few words (e.g., "Natural low volume" or "System-induced suppression").'),
+    .describe('Secondary analysis explaining why the root cause occurred.'),
   evidence: z
     .string()
-    .describe('Evidence from the data supporting the diagnosis. Use SL ROI and ROI Target terms.'),
+    .describe('Evidence from the data supporting the diagnosis.'),
   recommendation: z
     .string()
     .describe('Recommended parameter/system change to address the issue.'),
@@ -65,7 +66,7 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('The severity of the issue.'),
   severity_justification: z
     .string()
-    .describe('A single sentence justifying the chosen severity level based on data persistency.'),
+    .describe('A single sentence justifying the chosen severity level.'),
 });
 export type DiagnoseBiddingOutput = z.infer<
   typeof DiagnoseBiddingOutputSchema
