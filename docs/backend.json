@@ -11,7 +11,9 @@
         "status": { "type": "string", "enum": ["pending", "processing", "completed", "failed"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "fileUrl": { "type": "string" },
-        "analysisType": { "type": "string" }
+        "analysisType": { "type": "string" },
+        "systemPrompt": { "type": "string" },
+        "userPrompt": { "type": "string" }
       },
       "required": ["id", "fileName", "status", "createdAt"]
     },
@@ -31,6 +33,17 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["catalog_id", "root_cause", "severity"]
+    },
+    "PromptConfig": {
+      "title": "Prompt Configuration",
+      "description": "User-editable prompt templates for AI analysis.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "systemPrompt": { "type": "string" },
+        "userPrompt": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "auth": {
@@ -44,6 +57,10 @@
     "/analysis_sessions/{sessionId}/results/{catalogId}": {
       "schema": "AnalysisResult",
       "description": "Individual catalog diagnostics for the session."
+    },
+    "/prompts/{promptId}": {
+      "schema": "PromptConfig",
+      "description": "Stores current AI instructions."
     }
   }
 }

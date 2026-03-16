@@ -1,7 +1,8 @@
+
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for high-speed bidding performance diagnostics.
- * It uses the latest Gemini 2.0 Flash model for rapid analysis.
+ * It supports dynamic prompt injection from the UI.
  */
 
 import {ai} from '@/ai/genkit';
@@ -24,13 +25,12 @@ const LLMPromptInputSchema = z.object({
   pDown: z.number().describe('The P_down constant.'),
   nWindow: z.number().describe('The window size N.'),
   kTrigger: z.number().describe('The trigger K.'),
+  // Dynamic instructions passed from Firestore/UI
+  systemPrompt: z.string().optional(),
+  userPrompt: z.string().optional(),
 });
 
-const diagnoseBiddingPrompt = ai.definePrompt({
-  name: 'diagnoseBiddingPrompt',
-  input: { schema: LLMPromptInputSchema },
-  output: { schema: DiagnoseBiddingOutputSchema },
-  system: `You are a senior Ads Bidding PM. You are diagnosing a bidding control system.
+const DEFAULT_SYSTEM_PROMPT = `You are a senior Ads Bidding PM. You are diagnosing a bidding control system.
 
 CORE CONTROL LOGIC:
 1. ROI Pacing: If Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target to scale.
@@ -41,7 +41,7 @@ DIAGNOSIS CATEGORIES (ROOT CAUSE):
 - Slow ROI Pacing: ROI Target is high and moving slowly.
 - Fast Budget Pacing: ROI target increased too rapidly.
 - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
-- Outlier Day / Performance Death Loop: Spend behaved differently (sale/click mix) leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase. This puts the catalog in a "low clicks, low ROI" death loop.
+- Outlier Day / Performance Death Loop: Spend behaved differently leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase.
 - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI remains low.
 - Low click volume for K-trigger: Total daily clicks < K trigger.
 - Campaign status issues: Paused or inactive.
@@ -49,14 +49,22 @@ DIAGNOSIS CATEGORIES (ROOT CAUSE):
 ANALYSIS TASKS:
 1. Aggregate clicks across all campaign buckets for the day.
 2. If Catalog_ROI is consistently below SL_ROI, check for "Outlier Day" spikes that triggered "Performance Death Loop".
-3. Use SL ROI and ROI Target terms in evidence. Reference AGGREGATE daily clicks.`,
-  prompt: `Analysis Type: {{{analysisType}}}
+3. Use SL ROI and ROI Target terms in evidence. Reference AGGREGATE daily clicks.`;
+
+const DEFAULT_USER_PROMPT = `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
 
 Catalog Data:
 {{{catalogDataJson}}}
 
-Return JSON matching the schema.`,
+Return JSON matching the schema.`;
+
+const diagnoseBiddingPrompt = ai.definePrompt({
+  name: 'diagnoseBiddingPrompt',
+  input: { schema: LLMPromptInputSchema },
+  output: { schema: DiagnoseBiddingOutputSchema },
+  system: `{{#if systemPrompt}}{{{systemPrompt}}}{{else}}${DEFAULT_SYSTEM_PROMPT}{{/if}}`,
+  prompt: `{{#if userPrompt}}{{{userPrompt}}}{{else}}${DEFAULT_USER_PROMPT}{{/if}}`,
 });
 
 /**
@@ -70,8 +78,10 @@ export async function analyzeCatalogAction(input: {
   pDown: number;
   nWindow: number;
   kTrigger: number;
+  systemPrompt?: string;
+  userPrompt?: string;
 }): Promise<DiagnoseBiddingOutput | null> {
-  const { analysisType, catalogId, catalogData, pUp, pDown, nWindow, kTrigger } = input;
+  const { analysisType, catalogId, catalogData, pUp, pDown, nWindow, kTrigger, systemPrompt, userPrompt } = input;
 
   const sortedData = [...catalogData].sort((a, b) => 
     new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -90,6 +100,8 @@ export async function analyzeCatalogAction(input: {
         pDown,
         nWindow,
         kTrigger,
+        systemPrompt,
+        userPrompt,
       });
 
       if (output) {
