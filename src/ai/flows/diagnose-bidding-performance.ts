@@ -89,7 +89,7 @@ export async function analyzeCatalogAction(input: {
     try {
       const { output } = await diagnoseBiddingPrompt({
         analysisType,
-        catalogDataJson: JSON.stringify(sortedData, null, 2),
+        catalogDataJson: JSON.stringify(sortedData),
         catalog_id: catalogId,
         pUp,
         pDown,

@@ -47,7 +47,7 @@ export const DiagnoseBiddingOutputSchema = z.object({
     'Outlier Day / Performance Death Loop',
   ]),
   l2_reason: z.string(),
-  evidence: z.string().describe('CRITICAL: Quote the EXACT numeric values and timestamps from the JSON. DO NOT normalize or round values to 0.x if they are in the 10s or 100s. If Spend is 500, say 500, not 0.5.'),
+  evidence: z.string().describe('CRITICAL: Quote the EXACT numeric values and timestamps from the JSON provided in the prompt. DO NOT use example numbers. DO NOT normalize. If the data shows 200, use 200. Check the timestamps carefully.'),
   recommendation: z.string(),
   severity: z.enum(['Low', 'Medium', 'High']),
   severity_justification: z.string(),

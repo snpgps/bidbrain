@@ -171,6 +171,9 @@ export default function BidBrainPage() {
 
           activeWorkers.add(catalogId);
           
+          const catalogRows = catalogDataMap.get(catalogId) || [];
+          addLog(`Analyzing ${catalogId} (${catalogRows.length} rows). Payload Snippet: ${JSON.stringify(catalogRows[0]).slice(0, 80)}...`, 'info');
+
           let retryCount = 0;
           const maxRetries = 1;
           let success = false;
@@ -180,7 +183,7 @@ export default function BidBrainPage() {
               const result = await analyzeCatalogAction({
                 analysisType,
                 catalogId,
-                catalogData: catalogDataMap.get(catalogId) || [],
+                catalogData: catalogRows,
                 pUp,
                 pDown,
                 nWindow,
