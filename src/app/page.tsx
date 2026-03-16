@@ -120,7 +120,7 @@ export default function BidBrainPage() {
       const catalogIds = Array.from(catalogDataMap.keys());
       addLog(`Spawning parallel threads for ${catalogIds.length} catalogs...`, 'info');
 
-      // Concurrency management (Cloud Function-style distributed load)
+      // Concurrency management
       const CONCURRENCY_LIMIT = 10;
       const queue = [...catalogIds];
       const activeWorkers = new Set();
@@ -222,12 +222,10 @@ export default function BidBrainPage() {
 
       <main className="container mx-auto px-4 py-8 space-y-8 max-w-5xl">
         <section className="space-y-4">
-          <div className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 text-xs font-bold uppercase tracking-wider">
-            <FastForward className="w-3 h-3 mr-1.5" /> High-Throughput Diagnostics
-          </div>
           <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
-            Gemini 2.0 Parallel Engine
+            Bidding Performance Diagnostics
           </h2>
+          <p className="text-muted-foreground">Upload your bidding data to analyze control logic performance.</p>
         </section>
 
         {error && (
@@ -272,7 +270,7 @@ export default function BidBrainPage() {
               <div className="lg:col-span-7 flex flex-col items-center justify-center py-20 bg-card rounded-2xl border border-border shadow-sm">
                 <Loader2 className="w-10 h-10 text-primary animate-spin" />
                 <p className="mt-4 font-bold text-xl text-primary">Parallel Processing Active</p>
-                <p className="text-sm text-muted-foreground">Launching 10 parallel threads via Gemini 2.0...</p>
+                <p className="text-sm text-muted-foreground">Analyzing catalogs in parallel threads...</p>
                 <div className="mt-4 text-xs font-mono bg-muted px-2 py-1 rounded">
                   Progress: {results.length} catalogs completed
                 </div>
