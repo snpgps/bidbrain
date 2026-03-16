@@ -1,7 +1,7 @@
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for bidding performance diagnostics using Gemini 2.5 Flash.
- * It enforces strict numeric accuracy to prevent hallucinations.
+ * It enforces strict numeric accuracy to prevent hallucinations by manually substituting template variables.
  */
 
 import {ai} from '@/ai/genkit';
@@ -13,15 +13,15 @@ import {
 } from './diagnose-bidding-performance.schema';
 
 const LLMPromptInputSchema = z.object({
-  analysisType: AnalysisTypeSchema,
-  catalogDataJson: z.string().describe('JSON string of data rows.'),
+  analysisType: z.string(),
+  catalogDataJson: z.string(),
   catalog_id: z.string(),
   pUp: z.number(),
   pDown: z.number(),
   nWindow: z.number(),
   kTrigger: z.number(),
-  systemPrompt: z.string().optional(),
-  userPrompt: z.string().optional(),
+  systemPrompt: z.string(),
+  userPrompt: z.string(),
 });
 
 const DEFAULT_SYSTEM_PROMPT = `You are a senior Ads Bidding PM. You are diagnosing a bidding control system based on RAW LOG DATA.
@@ -61,9 +61,22 @@ const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
   input: { schema: LLMPromptInputSchema },
   output: { schema: DiagnoseBiddingOutputSchema },
-  system: `{{#if systemPrompt}}{{{systemPrompt}}}{{else}}${DEFAULT_SYSTEM_PROMPT}{{/if}}`,
-  prompt: `{{#if userPrompt}}{{{userPrompt}}}{{else}}${DEFAULT_USER_PROMPT}{{/if}}`,
+  // We perform manual substitution in analyzeCatalogAction because Genkit doesn't recursively render Handlebars in variables.
+  system: `{{{systemPrompt}}}`,
+  prompt: `{{{userPrompt}}}`,
 });
+
+function substituteVariables(template: string, vars: Record<string, any>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    const placeholder = `{{{${key}}}}`;
+    result = result.split(placeholder).join(String(value));
+    // Also handle non-triple brace version just in case
+    const simplePlaceholder = `{{${key}}}`;
+    result = result.split(simplePlaceholder).join(String(value));
+  }
+  return result;
+}
 
 export async function analyzeCatalogAction(input: {
   analysisType: 'Low BU Analysis' | 'Low Delivery Analysis';
@@ -78,25 +91,40 @@ export async function analyzeCatalogAction(input: {
 }): Promise<DiagnoseBiddingOutput | null> {
   const { analysisType, catalogId, catalogData, pUp, pDown, nWindow, kTrigger, systemPrompt, userPrompt } = input;
 
-  const sortedData = [...catalogData].sort((a, b) => 
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
+  // Ensure data is sorted by timestamp for chronological analysis
+  const sortedData = [...catalogData].sort((a, b) => {
+    const timeA = new Date(a.timestamp).getTime();
+    const timeB = new Date(b.timestamp).getTime();
+    if (isNaN(timeA) || isNaN(timeB)) return 0;
+    return timeA - timeB;
+  });
+
+  const catalogDataJson = JSON.stringify(sortedData);
+  
+  const substitutionContext = {
+    analysisType,
+    catalogDataJson,
+    catalog_id: catalogId,
+    pUp,
+    pDown,
+    nWindow,
+    kTrigger,
+  };
+
+  // Perform manual substitution to prevent the AI from seeing raw curly braces
+  const finalSystemPrompt = substituteVariables(systemPrompt || DEFAULT_SYSTEM_PROMPT, substitutionContext);
+  const finalUserPrompt = substituteVariables(userPrompt || DEFAULT_USER_PROMPT, substitutionContext);
 
   let retryCount = 0;
   const maxRetries = 2;
   
   while (retryCount <= maxRetries) {
     try {
+      // Strictly using the configured Gemini 2.5 Flash model
       const { output } = await diagnoseBiddingPrompt({
-        analysisType,
-        catalogDataJson: JSON.stringify(sortedData),
-        catalog_id: catalogId,
-        pUp,
-        pDown,
-        nWindow,
-        kTrigger,
-        systemPrompt,
-        userPrompt,
+        ...substitutionContext,
+        systemPrompt: finalSystemPrompt,
+        userPrompt: finalUserPrompt,
       });
 
       if (output) {

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -155,7 +154,7 @@ export default function BidBrainPage() {
       const catalogIds = Array.from(catalogDataMap.keys());
       const CONCURRENCY_LIMIT = 3;
       
-      // Data integrity check: Log a sample row
+      // Data integrity check: Log a sample row to verify parsing scale
       if (biddingData.length > 0) {
         addLog(`Data Integrity Check - Sample Row: ${JSON.stringify(biddingData[0])}`, 'info');
       }
@@ -173,7 +172,6 @@ export default function BidBrainPage() {
           activeWorkers.add(catalogId);
           
           const catalogRows = catalogDataMap.get(catalogId) || [];
-          // Increased snippet length to 500 for better debugging
           addLog(`Analyzing ${catalogId} (${catalogRows.length} rows). Payload Snippet: ${JSON.stringify(catalogRows[0]).slice(0, 500)}...`, 'info');
 
           let retryCount = 0;
