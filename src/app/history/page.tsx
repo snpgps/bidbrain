@@ -1,24 +1,38 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useFirestore } from '@/firebase';
 import { useCollection } from '@/firebase';
-import { collection, query, orderBy } from 'firebase/firestore';
-import { Brain, History, ArrowLeft, Calendar, FileText, CheckCircle2, Clock, AlertCircle, ChevronRight, User as UserIcon, LogIn, LogOut } from 'lucide-react';
+import { collection, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
+import { Brain, History, ArrowLeft, Calendar, FileText, CheckCircle2, Clock, AlertCircle, ChevronRight, User as UserIcon, LogIn, LogOut, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { useUser, useAuth } from '@/firebase';
 import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
 
 export default function HistoryPage() {
   const db = useFirestore();
   const auth = useAuth();
   const { user } = useUser();
+  const { toast } = useToast();
   
+  const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
+
   const sessionsQuery = React.useMemo(() => {
     if (!db) return null;
     return query(collection(db, 'analysis_sessions'), orderBy('createdAt', 'desc'));
@@ -35,6 +49,25 @@ export default function HistoryPage() {
   const handleSignOut = async () => {
     if (!auth) return;
     await signOut(auth);
+  };
+
+  const handleDeleteSession = async () => {
+    if (!db || !deleteSessionId) return;
+    try {
+      await deleteDoc(doc(db, 'analysis_sessions', deleteSessionId));
+      toast({
+        title: "Session Deleted",
+        description: "The analysis session has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Delete Failed",
+        description: error.message,
+      });
+    } finally {
+      setDeleteSessionId(null);
+    }
   };
 
   const getStatusIcon = (status: string) => {
@@ -110,41 +143,55 @@ export default function HistoryPage() {
         ) : sessions.length > 0 ? (
           <div className="grid gap-4">
             {sessions.map((session: any) => (
-              <Link key={session.id} href={`/history/${session.id}`}>
-                <Card className="hover:border-primary/50 transition-all group overflow-hidden border-border bg-card shadow-sm hover:shadow-md">
-                  <CardContent className="p-0">
-                    <div className="flex items-center p-5">
-                      <div className="flex-1 space-y-1.5">
-                        <div className="flex items-center space-x-3">
-                          <h3 className="font-bold text-foreground group-hover:text-primary transition-colors">
-                            {session.fileName}
-                          </h3>
-                          <Badge variant="outline" className="text-[10px] uppercase font-bold">
-                            {session.analysisType}
-                          </Badge>
-                          <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
-                            {getStatusIcon(session.status)}
-                            <span className="capitalize">{session.status}</span>
+              <div key={session.id} className="relative group">
+                <Link href={`/history/${session.id}`}>
+                  <Card className="hover:border-primary/50 transition-all overflow-hidden border-border bg-card shadow-sm hover:shadow-md pr-12">
+                    <CardContent className="p-0">
+                      <div className="flex items-center p-5">
+                        <div className="flex-1 space-y-1.5">
+                          <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                            <h3 className="font-bold text-foreground group-hover:text-primary transition-colors">
+                              {session.fileName}
+                            </h3>
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold">
+                              {session.analysisType}
+                            </Badge>
+                            <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
+                              {getStatusIcon(session.status)}
+                              <span className="capitalize">{session.status}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                            <span className="flex items-center">
+                              <Calendar className="w-3 h-3 mr-1" />
+                              {session.createdAt?.seconds 
+                                ? format(new Date(session.createdAt.seconds * 1000), 'MMM d, yyyy • HH:mm')
+                                : 'Pending...'}
+                            </span>
+                            <span className="flex items-center">
+                              <FileText className="w-3 h-3 mr-1" />
+                              ID: {session.id.slice(0, 8)}...
+                            </span>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                          <span className="flex items-center">
-                            <Calendar className="w-3 h-3 mr-1" />
-                            {session.createdAt?.seconds 
-                              ? format(new Date(session.createdAt.seconds * 1000), 'MMM d, yyyy • HH:mm')
-                              : 'Pending...'}
-                          </span>
-                          <span className="flex items-center">
-                            <FileText className="w-3 h-3 mr-1" />
-                            ID: {session.id.slice(0, 8)}...
-                          </span>
-                        </div>
+                        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                       </div>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                    </CardContent>
+                  </Card>
+                </Link>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDeleteSessionId(session.id);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             ))}
           </div>
         ) : (
@@ -157,6 +204,23 @@ export default function HistoryPage() {
           </div>
         )}
       </main>
+
+      <AlertDialog open={!!deleteSessionId} onOpenChange={(open) => !open && setDeleteSessionId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this analysis session and all associated results. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSession} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete Session
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

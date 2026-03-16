@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useFirestore, useDoc, useCollection } from '@/firebase';
-import { doc, collection } from 'firebase/firestore';
-import { Brain, ArrowLeft, Loader2, Calendar, FileText, Clock, AlertCircle, Terminal } from 'lucide-react';
+import { doc, collection, deleteDoc } from 'firebase/firestore';
+import { Brain, ArrowLeft, Loader2, Calendar, FileText, Clock, AlertCircle, Terminal, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResultsView } from '@/components/bid-brain/results-view';
 import { ExecutionLogs } from '@/components/bid-brain/execution-logs';
@@ -13,14 +13,28 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Toaster } from '@/components/ui/toaster';
 import { fetchCsvFromUrl } from '@/ai/flows/diagnose-bidding-performance';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
 
 export default function SessionDetailPage() {
   const { sessionId } = useParams();
   const db = useFirestore();
   const router = useRouter();
+  const { toast } = useToast();
   
   const [originalData, setOriginalData] = useState<any[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const sessionRef = React.useMemo(() => (db && sessionId ? doc(db, 'analysis_sessions', sessionId as string) : null), [db, sessionId]);
   const resultsRef = React.useMemo(() => (db && sessionId ? collection(db, 'analysis_sessions', sessionId as string, 'results') : null), [db, sessionId]);
@@ -41,6 +55,26 @@ export default function SessionDetailPage() {
         .finally(() => setIsDataLoading(false));
     }
   }, [session?.fileUrl]);
+
+  const handleDelete = async () => {
+    if (!db || !sessionId) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'analysis_sessions', sessionId as string));
+      toast({
+        title: "Session Deleted",
+        description: "The analysis session has been removed.",
+      });
+      router.push('/history');
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Delete Failed",
+        description: error.message,
+      });
+      setIsDeleting(false);
+    }
+  };
 
   const isLoading = sessionLoading || resultsLoading || isDataLoading;
 
@@ -76,12 +110,37 @@ export default function SessionDetailPage() {
               </h1>
             </Link>
           </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/history">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              History
-            </Link>
-          </Button>
+          <div className="flex items-center space-x-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/history">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                History
+              </Link>
+            </Button>
+            
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Session
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete this analysis session. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Delete Session"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </div>
       </header>
 
