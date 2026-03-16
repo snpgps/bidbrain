@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -111,7 +110,7 @@ export default function BidBrainPage() {
     };
 
     const newSessionId = crypto.randomUUID();
-    addLog(`Initialized Engine: ${newSessionId}`, 'info');
+    addLog(`Engine Initialized (Gemini 2.0 Flash): ${newSessionId}`, 'info');
 
     try {
       let fileUrl = '';
@@ -149,9 +148,9 @@ export default function BidBrainPage() {
       }
 
       const catalogIds = Array.from(catalogDataMap.keys());
-      addLog(`Analyzing ${catalogIds.length} catalogs...`, 'info');
+      addLog(`Dispatched ${catalogIds.length} parallel worker requests...`, 'info');
 
-      const CONCURRENCY_LIMIT = 10;
+      const CONCURRENCY_LIMIT = 5;
       const queue = [...catalogIds];
       const activeWorkers = new Set();
 
@@ -185,7 +184,7 @@ export default function BidBrainPage() {
           } finally {
             activeWorkers.delete(catalogId);
           }
-          await new Promise(r => setTimeout(r, 50));
+          await new Promise(r => setTimeout(r, 100));
         }
       };
 
@@ -196,11 +195,11 @@ export default function BidBrainPage() {
       await Promise.all(workers);
 
       await setDoc(sessionRef, { status: 'completed', logs: sessionLogs }, { merge: true });
-      addLog(`Session Complete. Results stored.`, 'success');
+      addLog(`Batch Complete. All results stored in Firestore.`, 'success');
 
     } catch (err: any) {
       setError(err.message);
-      addLog(`FATAL: ${err.message}`, 'error');
+      addLog(`FATAL ERROR: ${err.message}`, 'error');
       const sessionRef = doc(db, 'analysis_sessions', newSessionId);
       await setDoc(sessionRef, { status: 'failed', logs: sessionLogs }, { merge: true });
     } finally {
@@ -305,7 +304,7 @@ export default function BidBrainPage() {
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
                         <AlertTitle className="text-primary">Analysis In Progress</AlertTitle>
                         <AlertDescription className="text-sm text-muted-foreground">
-                          Processing catalogs using parallel workers... 
+                          Processing catalogs using parallel Gemini 2.0 threads... 
                           <span className="font-bold ml-1">({results.length} complete)</span>
                         </AlertDescription>
                       </Alert>
@@ -321,7 +320,7 @@ export default function BidBrainPage() {
                       isLoading && (
                         <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20 animate-pulse">
                           <Brain className="w-12 h-12 text-primary/20 mx-auto mb-4" />
-                          <p className="text-muted-foreground">Waiting for workers to return first results...</p>
+                          <p className="text-muted-foreground">Waiting for workers to return diagnostic results...</p>
                         </div>
                       )
                     )}

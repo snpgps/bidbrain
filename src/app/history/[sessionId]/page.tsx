@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState } from 'react';
@@ -37,7 +36,7 @@ export default function SessionDetailPage() {
           setOriginalData(parsed);
         })
         .catch(err => {
-          console.error("Error fetching historical data via server action:", err);
+          console.error("Error fetching historical data:", err);
         })
         .finally(() => setIsDataLoading(false));
     }
@@ -111,7 +110,7 @@ export default function SessionDetailPage() {
                 </span>
                 <span className="flex items-center">
                   <FileText className="w-4 h-4 mr-1.5" />
-                  ID: {session?.id}
+                  ID: {session?.id?.slice(0, 8)}...
                 </span>
               </div>
             </div>
@@ -143,12 +142,16 @@ export default function SessionDetailPage() {
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
               <div className="text-center">
                 <p className="font-bold text-lg">Loading Historical Session</p>
-                <p className="text-sm text-muted-foreground">Retrieving results and source data for visualization...</p>
+                <p className="text-sm text-muted-foreground">Retrieving results and source data...</p>
               </div>
             </div>
           ) : (
             <>
-              <div className="space-y-6">
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold font-headline flex items-center">
+                  <FileText className="w-5 h-5 mr-2 text-primary" />
+                  Diagnostic Results
+                </h3>
                 <ResultsView 
                   results={results as any} 
                   analysisType={session?.analysisType} 
@@ -159,7 +162,7 @@ export default function SessionDetailPage() {
               {session?.logs && session.logs.length > 0 && (
                 <div className="space-y-4">
                   <div className="flex items-center space-x-2 text-xl font-bold font-headline">
-                    <Terminal className="w-6 h-6 text-primary" />
+                    <Terminal className="w-5 h-5 text-primary" />
                     <h3>Diagnostic Logs</h3>
                   </div>
                   <ExecutionLogs 
