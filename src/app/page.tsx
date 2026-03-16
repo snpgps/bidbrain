@@ -275,7 +275,6 @@ export default function BidBrainPage() {
           <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
             Diagnostic Dashboard
           </h2>
-          <p className="text-muted-foreground">Analyze bidding control performance and optimize ROI logic.</p>
         </section>
 
         {error && (
