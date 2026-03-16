@@ -41,9 +41,10 @@ export function ExecutionLogs({ logs, isLoading, className, maxHeight = "600px" 
       <ScrollArea style={{ height: maxHeight }} className="p-4 font-code text-[11px]">
         <div className="space-y-1.5">
           {logs.map((log, i) => (
-            <div key={i} className="flex space-x-3">
-              <span className="text-slate-500 whitespace-nowrap">{log.timestamp}</span>
+            <div key={i} className="flex space-x-3 items-start">
+              <span className="text-slate-500 whitespace-nowrap shrink-0">{log.timestamp}</span>
               <span className={cn(
+                "break-all whitespace-pre-wrap",
                 log.type === 'success' ? 'text-emerald-400' : 
                 log.type === 'error' ? 'text-rose-400' : 
                 log.type === 'warning' ? 'text-amber-400' : 
