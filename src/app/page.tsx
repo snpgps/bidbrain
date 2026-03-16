@@ -30,24 +30,28 @@ CORE CONTROL LOGIC:
 STRICT NUMERIC ACCURACY:
 - You MUST reference the EXACT numbers provided in the JSON.
 - DO NOT normalize or scale values. If the data says Catalog_ROI = 23.8, DO NOT say 0.9.
-- Reference specific timestamps from the data to show trends.
+- Reference specific update time buckets from the data to show trends.
 
 DIAGNOSIS CATEGORIES:
-- Slow ROI Pacing: ROI Target is high and moving slowly.
-- Fast Budget Pacing: ROI target increased too rapidly.
-- Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
-- Outlier Day / Performance Death Loop: Spend behaved differently leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase.
-- Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI remains low.
-- Low click volume for K-trigger: Total daily clicks < K trigger.
-- Campaign status issues: Paused or inactive.`;
+L1: Slow ROI Pacing: ROI Target is high and moving slowly.
+L2:Low click volume for K-trigger: Total daily clicks < K trigger.
+
+L1: Fast Budget Pacing: ROI target increased too rapidly.
+L2: Budget Decreased
+
+L1:Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
+L2: Outlier Day: Spend behaved differently leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase after that by protection side ROI pacing.
+L2: Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI remains low.
+
+L1:Campaign status issues: Paused or inactive.`;
 
 const DEFAULT_USER_PROMPT = `Analysis Type: {{{analysisType}}}
-Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
+Bidding Constants: P_up={{{pUp}}}, P_down={{{pDown}}}, N={{{nWindow}}}, K={{{kTrigger}}}
 
-Catalog Data:
+CATALOG DATA (JSON):
 {{{catalogDataJson}}}
 
-In your 'evidence' field, you MUST quote the exact raw numbers (e.g. Catalog_ROI, ROI_Target, Clicks) from the JSON above. Explain exactly which timestamp triggered the logic.`;
+In your 'evidence' field, you MUST quote the exact raw numbers (e.g. Catalog_ROI, ROI_Target, Clicks) and timestamps from the JSON above. Explain the specific row that triggered the logic.`;
 
 export default function BidBrainPage() {
   const db = useFirestore();
