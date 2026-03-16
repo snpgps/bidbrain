@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -170,8 +169,8 @@ export default function BidBrainPage() {
       const catalogIds = Array.from(catalogDataMap.keys());
       addLog(`Analyzing ${catalogIds.length} catalogs...`, 'info');
 
-      // Concurrent processing logic
-      const CONCURRENCY_LIMIT = 5;
+      // Parallel Worker Pool
+      const CONCURRENCY_LIMIT = 10;
       const queue = [...catalogIds];
       const activeWorkers = new Set();
 
@@ -206,7 +205,7 @@ export default function BidBrainPage() {
           } finally {
             activeWorkers.delete(catalogId);
           }
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, 50));
         }
       };
 
@@ -236,9 +235,6 @@ export default function BidBrainPage() {
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
                 <Brain className="w-5 h-5" />
               </div>
-              <h1 className="text-xl font-bold font-headline tracking-tight text-primary">
-                BidBrain <span className="text-foreground">Analyzer</span>
-              </h1>
             </Link>
           </div>
           <div className="flex items-center space-x-4">
@@ -319,7 +315,7 @@ export default function BidBrainPage() {
             </section>
 
             <section className="space-y-6">
-              {logs.length > 0 ? (
+              {(logs.length > 0 || results.length > 0) ? (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                   <div className="lg:col-span-8 space-y-6">
                     {isLoading && (
@@ -327,7 +323,7 @@ export default function BidBrainPage() {
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
                         <AlertTitle className="text-primary">Analysis In Progress</AlertTitle>
                         <AlertDescription className="text-sm text-muted-foreground">
-                          Processing {new Set(biddingData.map(d => d.catalog_id)).size} catalogs... 
+                          Processing catalogs using parallel workers... 
                           <span className="font-bold ml-1">({results.length} complete)</span>
                         </AlertDescription>
                       </Alert>
@@ -343,7 +339,7 @@ export default function BidBrainPage() {
                       isLoading && (
                         <div className="py-20 text-center border border-dashed rounded-2xl bg-muted/20 animate-pulse">
                           <Brain className="w-12 h-12 text-primary/20 mx-auto mb-4" />
-                          <p className="text-muted-foreground">Waiting for first catalog results...</p>
+                          <p className="text-muted-foreground">Waiting for workers to return first results...</p>
                         </div>
                       )
                     )}
