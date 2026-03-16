@@ -1,4 +1,3 @@
-
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 
 export const CORE_COLUMNS = [
@@ -21,7 +20,13 @@ export function parseBiddingCsv(csvText: string): any[] {
   if (lines.length < 2) return [];
 
   const headers = lines[0].split(',').map((h) => h.trim());
-  const missing = CORE_COLUMNS.filter((col) => !headers.includes(col));
+  
+  // More resilient header mapping for timestamp
+  const timestampHeader = headers.find(h => ['ts', 'timestamp', 'date', 'Date', 'TS'].includes(h));
+  const missing = CORE_COLUMNS.filter((col) => {
+    if (col === 'ts') return !timestampHeader;
+    return !headers.includes(col);
+  });
 
   if (missing.length > 0) {
     throw new Error(`Missing core columns: ${missing.join(', ')}`);
@@ -37,7 +42,7 @@ export function parseBiddingCsv(csvText: string): any[] {
       const val = values[index];
       
       let schemaKey = header;
-      if (header === 'ts') schemaKey = 'timestamp';
+      if (header === timestampHeader) schemaKey = 'timestamp';
       if (header === 'roi_min') schemaKey = 'sl_roi';
       if (header === 'catalog_bugdet_utilised') schemaKey = 'spend';
 

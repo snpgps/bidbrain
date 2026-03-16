@@ -1,7 +1,7 @@
 'use server';
 /**
- * @fileOverview This file implements a Genkit flow for high-speed bidding performance diagnostics.
- * It supports dynamic prompt injection from the UI.
+ * @fileOverview This file implements a Genkit flow for bidding performance diagnostics using Gemini 2.5 Flash.
+ * It enforces strict numeric accuracy to prevent hallucinations.
  */
 
 import {ai} from '@/ai/genkit';
@@ -14,49 +14,45 @@ import {
 
 const LLMPromptInputSchema = z.object({
   analysisType: AnalysisTypeSchema,
-  catalogDataJson: z
-    .string()
-    .describe('JSON string of time-bucket level data for a single catalog.'),
-  catalog_id: z
-    .string()
-    .describe('The ID of the catalog for which the data is provided.'),
-  pUp: z.number().describe('The P_up constant.'),
-  pDown: z.number().describe('The P_down constant.'),
-  nWindow: z.number().describe('The window size N.'),
-  kTrigger: z.number().describe('The trigger K.'),
-  // Dynamic instructions passed from Firestore/UI
+  catalogDataJson: z.string().describe('JSON string of data rows.'),
+  catalog_id: z.string(),
+  pUp: z.number(),
+  pDown: z.number(),
+  nWindow: z.number(),
+  kTrigger: z.number(),
   systemPrompt: z.string().optional(),
   userPrompt: z.string().optional(),
 });
 
-const DEFAULT_SYSTEM_PROMPT = `You are a senior Ads Bidding PM. You are diagnosing a bidding control system based on RAW LOG DATA.
+const DEFAULT_SYSTEM_PROMPT = `You are a Strict Bidding Control Auditor. You are diagnosing a system using RAW LOG DATA.
+
+TRUTH ANCHORING - MANDATORY:
+1. USE EXACT NUMBERS: If Catalog_ROI is 23.8, you MUST say 23.8. NEVER say 0.9 or any other normalized number.
+2. USE EXACT TIMESTAMPS: Only reference timestamps provided in the JSON data.
+3. NO HALLUCINATION: If a value is not in the data, do not mention it.
+4. DO NOT NORMALIZE: Keep all values in their original units as provided in the JSON.
 
 CORE CONTROL LOGIC:
 1. ROI Pacing: If Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target to scale.
 2. Protection: If Catalog_ROI < SL_ROI, INCREASE ROI_Target rapidly (P_down) to protect margins.
 3. Reliability: Window N = {{{nWindow}}} clicks. Update Trigger K = {{{kTrigger}}} clicks.
 
-STRICT NUMERIC ACCURACY:
-- You MUST reference the EXACT numbers provided in the JSON.
-- DO NOT normalize or scale values. If the data says Catalog_ROI = 23.8, DO NOT say 0.9.
-- Reference specific timestamps from the data to show trends.
-
 DIAGNOSIS CATEGORIES:
-- Slow ROI Pacing: ROI Target is high and moving slowly.
-- Fast Budget Pacing: ROI target increased too rapidly.
-- Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
-- Outlier Day / Performance Death Loop: Spend behaved differently leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase.
-- Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI remains low.
-- Low click volume for K-trigger: Total daily clicks < K trigger.
-- Campaign status issues: Paused or inactive.`;
+- Slow ROI Pacing
+- Fast Budget Pacing
+- Fast ROI Pacing (protection side)
+- Outlier Day / Performance Death Loop
+- Incorrect Catalog ROI Window
+- Low click volume for K-trigger
+- Campaign status issues`;
 
 const DEFAULT_USER_PROMPT = `Analysis Type: {{{analysisType}}}
-Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
+Bidding Constants: P_up={{{pUp}}}, P_down={{{pDown}}}, N={{{nWindow}}}, K={{{kTrigger}}}
 
-Catalog Data:
+CATALOG DATA (JSON):
 {{{catalogDataJson}}}
 
-In your 'evidence' field, you MUST quote the exact raw numbers (e.g. Catalog_ROI, ROI_Target, Clicks) from the JSON above. Explain exactly which timestamp triggered the logic.`;
+In your 'evidence' field, you MUST quote the exact raw numbers (e.g. Catalog_ROI, ROI_Target, Clicks) and timestamps from the JSON above. Explain the specific row that triggered the logic.`;
 
 const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
@@ -66,9 +62,6 @@ const diagnoseBiddingPrompt = ai.definePrompt({
   prompt: `{{#if userPrompt}}{{{userPrompt}}}{{else}}${DEFAULT_USER_PROMPT}{{/if}}`,
 });
 
-/**
- * Server Action to analyze a single catalog.
- */
 export async function analyzeCatalogAction(input: {
   analysisType: 'Low BU Analysis' | 'Low Delivery Analysis';
   catalogId: string;
@@ -111,12 +104,7 @@ export async function analyzeCatalogAction(input: {
       const isRateLimit = err.message.includes('429') || err.message.includes('Quota');
       if (isRateLimit) {
         retryCount++;
-        if (retryCount <= maxRetries) {
-          // Exponential backoff
-          await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 2000));
-        } else {
-          throw err;
-        }
+        await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 2000));
       } else {
         throw err;
       }
@@ -125,9 +113,6 @@ export async function analyzeCatalogAction(input: {
   return null;
 }
 
-/**
- * Server Action to fetch and parse CSV data from a URL.
- */
 export async function fetchCsvFromUrl(url: string): Promise<any[]> {
   try {
     const response = await fetch(url);
@@ -136,7 +121,6 @@ export async function fetchCsvFromUrl(url: string): Promise<any[]> {
     const { parseBiddingCsv } = await import('@/lib/csv-utils');
     return parseBiddingCsv(text);
   } catch (err) {
-    console.error("Error fetching historical CSV:", err);
     throw err;
   }
 }
