@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -168,9 +167,9 @@ export default function BidBrainPage() {
       }
 
       const catalogIds = Array.from(catalogDataMap.keys());
-      addLog(`Analyzing ${catalogIds.length} catalogs in parallel threads...`, 'info');
+      addLog(`Analyzing ${catalogIds.length} catalogs...`, 'info');
 
-      // Concurrent processing with workers
+      // Concurrent processing logic
       const CONCURRENCY_LIMIT = 5;
       const queue = [...catalogIds];
       const activeWorkers = new Set();
@@ -271,12 +270,6 @@ export default function BidBrainPage() {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8 max-w-5xl">
-        <section className="space-y-2">
-          <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
-            Diagnostic Dashboard
-          </h2>
-        </section>
-
         {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -332,7 +325,7 @@ export default function BidBrainPage() {
                   <div className="lg:col-span-7 flex flex-col items-center justify-center py-20 bg-card rounded-2xl border border-border shadow-sm">
                     <Loader2 className="w-10 h-10 text-primary animate-spin" />
                     <p className="mt-4 font-bold text-xl text-primary">AI Analysis In Progress</p>
-                    <p className="text-sm text-muted-foreground">Processing catalogs using parallel threads...</p>
+                    <p className="text-sm text-muted-foreground">Processing catalogs independently...</p>
                     <div className="mt-4 text-xs font-mono bg-muted px-2 py-1 rounded">
                       Completed: {results.length} / {new Set(biddingData.map(d => d.catalog_id)).size}
                     </div>
