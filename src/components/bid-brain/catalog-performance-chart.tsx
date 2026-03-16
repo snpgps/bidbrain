@@ -39,6 +39,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
       day: 'numeric',
       hour: '2-digit',
     }),
+    fullTimestamp: d.timestamp, // Keep the raw timestamp for the tooltip
   }));
 
   return (
@@ -77,7 +78,24 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               domain={[0, 'auto']}
               label={{ value: 'GMV / Clicks', angle: 90, position: 'insideRight', offset: 10, fontSize: 10 }}
             />
-            <ChartTooltip content={<ChartTooltipContent />} />
+            <Tooltip 
+              content={({ active, payload, label }) => {
+                if (active && payload && payload.length) {
+                  return (
+                    <div className="bg-background border border-border p-3 rounded-lg shadow-xl text-xs space-y-2">
+                      <p className="font-bold border-b pb-1 text-primary">Update Bucket: {payload[0].payload.fullTimestamp}</p>
+                      {payload.map((entry: any, index: number) => (
+                        <div key={index} className="flex items-center justify-between space-x-4">
+                          <span style={{ color: entry.color }} className="font-medium">{entry.name}:</span>
+                          <span className="font-mono">{entry.value.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                return null;
+              }} 
+            />
             <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
             
             {/* Volume data on Right Axis */}
@@ -85,6 +103,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="right"
               dataKey="catalog_clicks"
               fill="var(--color-catalog_clicks)"
+              name="Clicks"
               radius={[2, 2, 0, 0]}
               opacity={0.6}
             />
@@ -92,6 +111,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="right"
               type="monotone"
               dataKey="catalog_gmv"
+              name="GMV"
               stroke="#99f6e4"
               fillOpacity={1}
               fill="url(#colorGmv)"
@@ -103,6 +123,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="left"
               type="stepAfter"
               dataKey="roi_target"
+              name="ROI Target"
               stroke="#fb923c"
               strokeWidth={2}
               dot={false}
@@ -111,6 +132,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="left"
               type="stepAfter"
               dataKey="sl_roi"
+              name="SL ROI"
               stroke="#f87171"
               strokeWidth={3}
               dot={false}
@@ -119,6 +141,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="left"
               type="monotone"
               dataKey="catalog_roi"
+              name="Catalog ROI"
               stroke="#a78bfa"
               strokeWidth={2}
               dot={false}
@@ -127,6 +150,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="left"
               type="monotone"
               dataKey="catalog_bu_perc"
+              name="Catalog BU %"
               stroke="#facc15"
               strokeWidth={1.5}
               dot={false}
@@ -135,6 +159,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="left"
               type="monotone"
               dataKey="bu_ideal"
+              name="BU Ideal"
               stroke="#6366f1"
               strokeWidth={1.5}
               strokeDasharray="5 5"
@@ -144,6 +169,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               yAxisId="left"
               type="monotone"
               dataKey="day_roi"
+              name="Day ROI"
               stroke="#60a5fa"
               strokeWidth={1}
               dot={false}

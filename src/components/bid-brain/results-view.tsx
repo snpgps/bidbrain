@@ -117,42 +117,42 @@ export function ResultsView({ results, analysisType, originalData }: ResultsView
                                     <Info className="w-4 h-4 mr-2" />
                                     Diagnostic Evidence
                                   </div>
-                                  <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border">
+                                  <p className="text-sm leading-relaxed text-muted-foreground bg-background p-4 rounded-lg border whitespace-pre-wrap">
                                     {result.evidence}
                                   </p>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <div className="flex items-center text-sm font-semibold text-accent">
-                                      <Search className="w-4 h-4 mr-2" />
-                                      L2 Reason
-                                    </div>
-                                    <p className="text-sm leading-relaxed text-foreground bg-background p-3 rounded-lg border border-accent/20">
-                                      {result.l2_reason}
-                                    </p>
+                                <div className="space-y-2">
+                                  <div className="flex items-center text-sm font-semibold text-accent">
+                                    <Search className="w-4 h-4 mr-2" />
+                                    L2 Reason
                                   </div>
-
-                                  <div className="space-y-2">
-                                    <div className="flex items-center text-sm font-semibold text-destructive">
-                                      <ShieldAlert className="w-4 h-4 mr-2" />
-                                      Severity Justification
-                                    </div>
-                                    <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-3 rounded-lg border">
-                                      {result.severity_justification}
-                                    </p>
-                                  </div>
+                                  <p className="text-sm leading-relaxed text-foreground bg-background p-3 rounded-lg border border-accent/20">
+                                    {result.l2_reason}
+                                  </p>
                                 </div>
                               </div>
                               
-                              <div className="space-y-3">
-                                <div className="flex items-center text-sm font-semibold text-emerald-600">
-                                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                                  Actionable Recommendation
+                              <div className="space-y-6">
+                                <div className="space-y-3">
+                                  <div className="flex items-center text-sm font-semibold text-emerald-600">
+                                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                                    Actionable Recommendation
+                                  </div>
+                                  <div className="bg-background p-4 rounded-lg border border-emerald-200 shadow-sm">
+                                    <p className="text-sm leading-relaxed text-foreground font-medium">
+                                      {result.recommendation}
+                                    </p>
+                                  </div>
                                 </div>
-                                <div className="bg-background p-4 rounded-lg border border-emerald-200 shadow-sm">
-                                  <p className="text-sm leading-relaxed text-foreground font-medium">
-                                    {result.recommendation}
+
+                                <div className="space-y-2">
+                                  <div className="flex items-center text-sm font-semibold text-destructive">
+                                    <ShieldAlert className="w-4 h-4 mr-2" />
+                                    Severity Justification
+                                  </div>
+                                  <p className="text-sm italic leading-relaxed text-muted-foreground bg-background p-3 rounded-lg border">
+                                    {result.severity_justification}
                                   </p>
                                 </div>
                               </div>

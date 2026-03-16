@@ -154,11 +154,6 @@ export default function BidBrainPage() {
       const catalogIds = Array.from(catalogDataMap.keys());
       const CONCURRENCY_LIMIT = 3;
       
-      // Data integrity check: Log a sample row to verify parsing scale
-      if (biddingData.length > 0) {
-        addLog(`Data Integrity Check - Sample Row: ${JSON.stringify(biddingData[0])}`, 'info');
-      }
-
       addLog(`Dispatched analysis for ${catalogIds.length} catalogs (Concurrency: ${CONCURRENCY_LIMIT})...`, 'info');
 
       const queue = [...catalogIds];
