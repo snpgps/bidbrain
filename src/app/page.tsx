@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -149,9 +148,10 @@ export default function BidBrainPage() {
       }
 
       const catalogIds = Array.from(catalogDataMap.keys());
-      addLog(`Dispatched ${catalogIds.length} parallel worker requests...`, 'info');
+      addLog(`Dispatched analysis for ${catalogIds.length} catalogs...`, 'info');
 
-      const CONCURRENCY_LIMIT = 5;
+      // Reduce concurrency to 3 to avoid hitting Next.js Server Action / API rate limits too hard.
+      const CONCURRENCY_LIMIT = 3;
       const queue = [...catalogIds];
       const activeWorkers = new Set();
 
@@ -161,31 +161,47 @@ export default function BidBrainPage() {
           if (!catalogId) break;
 
           activeWorkers.add(catalogId);
-          try {
-            const result = await analyzeCatalogAction({
-              analysisType,
-              catalogId,
-              catalogData: catalogDataMap.get(catalogId) || [],
-              pUp,
-              pDown,
-              nWindow,
-              kTrigger,
-              systemPrompt,
-              userPrompt
-            });
+          
+          let retryCount = 0;
+          const maxRetries = 1;
+          let success = false;
 
-            if (result) {
-              const resultRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
-              setDoc(resultRef, { ...result, timestamp: new Date().toISOString() });
-              setResults(prev => [...prev, result]);
-              addLog(`Analyzed ${catalogId} [SUCCESS]`, 'success');
+          while (retryCount <= maxRetries && !success) {
+            try {
+              const result = await analyzeCatalogAction({
+                analysisType,
+                catalogId,
+                catalogData: catalogDataMap.get(catalogId) || [],
+                pUp,
+                pDown,
+                nWindow,
+                kTrigger,
+                systemPrompt,
+                userPrompt
+              });
+
+              if (result) {
+                const resultRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
+                setDoc(resultRef, { ...result, timestamp: new Date().toISOString() });
+                setResults(prev => [...prev, result]);
+                addLog(`Analyzed ${catalogId} [SUCCESS]`, 'success');
+                success = true;
+              }
+            } catch (err: any) {
+              const isUnexpectedResponse = err.message.includes('unexpected response');
+              if (isUnexpectedResponse && retryCount < maxRetries) {
+                retryCount++;
+                addLog(`Network issue for ${catalogId}, retrying... (${retryCount})`, 'warning');
+                await new Promise(r => setTimeout(r, 2000));
+              } else {
+                addLog(`Failed ${catalogId}: ${err.message}`, 'error');
+                break;
+              }
             }
-          } catch (err: any) {
-            addLog(`Failed ${catalogId}: ${err.message}`, 'error');
-          } finally {
-            activeWorkers.delete(catalogId);
           }
-          await new Promise(r => setTimeout(r, 100));
+          activeWorkers.delete(catalogId);
+          // Small staggered delay between starting next worker
+          await new Promise(r => setTimeout(r, 500));
         }
       };
 
@@ -305,7 +321,7 @@ export default function BidBrainPage() {
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
                         <AlertTitle className="text-primary">Analysis In Progress</AlertTitle>
                         <AlertDescription className="text-sm text-muted-foreground">
-                          Processing catalogs using parallel Gemini 2.5 threads... 
+                          Processing catalogs using parallel Gemini threads... 
                           <span className="font-bold ml-1">({results.length} complete)</span>
                         </AlertDescription>
                       </Alert>

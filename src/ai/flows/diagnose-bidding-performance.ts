@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview This file implements a Genkit flow for high-speed bidding performance diagnostics.
@@ -109,9 +108,11 @@ export async function analyzeCatalogAction(input: {
       }
       return null;
     } catch (err: any) {
-      if (err.message.includes('429') || err.message.includes('Quota')) {
+      const isRateLimit = err.message.includes('429') || err.message.includes('Quota');
+      if (isRateLimit) {
         retryCount++;
         if (retryCount <= maxRetries) {
+          // Exponential backoff
           await new Promise(r => setTimeout(r, Math.pow(2, retryCount) * 2000));
         } else {
           throw err;
