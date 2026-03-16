@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -110,7 +111,7 @@ export default function BidBrainPage() {
     };
 
     const newSessionId = crypto.randomUUID();
-    addLog(`Engine Initialized (Gemini 2.0 Flash): ${newSessionId}`, 'info');
+    addLog(`Engine Initialized (Gemini 2.5 Flash): ${newSessionId}`, 'info');
 
     try {
       let fileUrl = '';
@@ -304,7 +305,7 @@ export default function BidBrainPage() {
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
                         <AlertTitle className="text-primary">Analysis In Progress</AlertTitle>
                         <AlertDescription className="text-sm text-muted-foreground">
-                          Processing catalogs using parallel Gemini 2.0 threads... 
+                          Processing catalogs using parallel Gemini 2.5 threads... 
                           <span className="font-bold ml-1">({results.length} complete)</span>
                         </AlertDescription>
                       </Alert>
