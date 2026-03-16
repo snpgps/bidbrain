@@ -23,15 +23,7 @@ export function parseBiddingCsv(csvText: string): any[] {
   
   // More resilient header mapping for timestamp
   const timestampHeader = headers.find(h => ['ts', 'timestamp', 'date', 'Date', 'TS'].includes(h));
-  const missing = CORE_COLUMNS.filter((col) => {
-    if (col === 'ts') return !timestampHeader;
-    return !headers.includes(col);
-  });
-
-  if (missing.length > 0) {
-    throw new Error(`Missing core columns: ${missing.join(', ')}`);
-  }
-
+  
   const results = [];
   for (let i = 1; i < lines.length; i++) {
     const values = lines[i].split(',').map((v) => v.trim());
@@ -59,6 +51,7 @@ export function parseBiddingCsv(csvText: string): any[] {
         'spend',
         'catalog_bugdet_utilised',
         'alpha',
+        'budget',
       ];
 
       if (numericFields.includes(schemaKey)) {

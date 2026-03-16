@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
   ComposedChart,
 } from 'recharts';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { ChartContainer } from '@/components/ui/chart';
 
 interface CatalogPerformanceChartProps {
   data: any[];
@@ -39,7 +39,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
       day: 'numeric',
       hour: '2-digit',
     }),
-    fullTimestamp: d.timestamp, // Keep the raw timestamp for the tooltip
+    fullTimestamp: d.timestamp, 
   }));
 
   return (
@@ -79,17 +79,43 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               label={{ value: 'GMV / Clicks', angle: 90, position: 'insideRight', offset: 10, fontSize: 10 }}
             />
             <Tooltip 
-              content={({ active, payload, label }) => {
+              content={({ active, payload }) => {
                 if (active && payload && payload.length) {
+                  const dataPoint = payload[0].payload;
                   return (
-                    <div className="bg-background border border-border p-3 rounded-lg shadow-xl text-xs space-y-2">
-                      <p className="font-bold border-b pb-1 text-primary">Update Bucket: {payload[0].payload.fullTimestamp}</p>
-                      {payload.map((entry: any, index: number) => (
-                        <div key={index} className="flex items-center justify-between space-x-4">
-                          <span style={{ color: entry.color }} className="font-medium">{entry.name}:</span>
-                          <span className="font-mono">{entry.value.toLocaleString()}</span>
+                    <div className="bg-background border border-border p-3 rounded-lg shadow-xl text-xs space-y-2 min-w-[220px]">
+                      <p className="font-bold border-b pb-1 text-primary">Update: {dataPoint.fullTimestamp}</p>
+                      
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 py-1">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase text-muted-foreground font-bold">Catalog Status</span>
+                          <span className="font-medium text-foreground">{dataPoint.catalog_status || 'N/A'}</span>
                         </div>
-                      ))}
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase text-muted-foreground font-bold">Campaign Status</span>
+                          <span className="font-medium text-foreground">{dataPoint.campaign_status || 'N/A'}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 py-1 border-y border-border/50">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase text-muted-foreground font-bold">Budget</span>
+                          <span className="font-mono text-foreground">{(dataPoint.budget || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase text-muted-foreground font-bold">Spend (Utilised)</span>
+                          <span className="font-mono text-foreground">{(dataPoint.spend || 0).toLocaleString()}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        {payload.map((entry: any, index: number) => (
+                          <div key={index} className="flex items-center justify-between space-x-4">
+                            <span style={{ color: entry.color }} className="font-medium">{entry.name}:</span>
+                            <span className="font-mono">{entry.value.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   );
                 }
@@ -98,7 +124,6 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
             />
             <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
             
-            {/* Volume data on Right Axis */}
             <Bar
               yAxisId="right"
               dataKey="catalog_clicks"
@@ -118,7 +143,6 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               strokeWidth={1}
             />
             
-            {/* Logic lines on Left Axis */}
             <Line
               yAxisId="left"
               type="stepAfter"
