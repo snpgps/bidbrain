@@ -43,10 +43,10 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
   }));
 
   return (
-    <div className="h-[400px] w-full mt-4">
+    <div className="h-[450px] w-full mt-4">
       <ChartContainer config={chartConfig}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={formattedData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+          <ComposedChart data={formattedData} margin={{ top: 10, right: 30, left: 0, bottom: 40 }}>
             <defs>
               <linearGradient id="colorGmv" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#99f6e4" stopOpacity={0.3} />
@@ -122,7 +122,11 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
                 return null;
               }} 
             />
-            <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+            <Legend 
+              wrapperStyle={{ fontSize: '10px', paddingTop: '20px' }} 
+              verticalAlign="bottom"
+              align="center"
+            />
             
             <Bar
               yAxisId="right"
