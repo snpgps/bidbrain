@@ -2,6 +2,7 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Rules for analysis sessions and their results
     match /analysis_sessions/{sessionId} {
       // Allow public read/write for the prototype phase to fix permission errors.
       allow read, write: if true;
@@ -10,6 +11,12 @@ service cloud.firestore {
         // Allow public access to results subcollection.
         allow read, write: if true;
       }
+    }
+
+    // Rules for AI prompt configurations
+    match /prompts/{promptId} {
+      // Allow reading and writing prompts so they can be managed via the UI.
+      allow read, write: if true;
     }
   }
 }
