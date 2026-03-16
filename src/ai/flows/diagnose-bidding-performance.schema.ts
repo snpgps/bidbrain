@@ -3,18 +3,16 @@ import { z } from 'genkit';
 export const BiddingDataRowSchema = z.object({
   catalog_id: z.string().describe('Unique identifier for the catalog.'),
   timestamp: z.string().describe('Timestamp of the data bucket.'),
-  catalog_roi: z.number().describe('Return on Investment for the catalog.'),
-  roi_target: z.number().describe('Target ROI for the catalog.'),
-  sl_roi: z.number().describe('Stop-loss ROI for the catalog.'),
-  catalog_clicks: z.number().describe('Number of clicks for the catalog.'),
-  catalog_gmv: z.number().describe('Gross Merchandise Volume for the catalog.'),
-  catalog_bu_perc: z
-    .number()
-    .describe('Budget Utilization Percentage for the catalog.'),
-  bu_ideal: z.number().describe('Ideal Budget Utilization.'),
-  day_roi: z.number().describe('Daily ROI.'),
-  spend: z.number().describe('Spend for the catalog.'),
-  alpha: z.number().describe('Alpha parameter.'),
+  catalog_roi: z.number().describe('The ACTUAL calculated ROI for this catalog at this timestamp.'),
+  roi_target: z.number().describe('The current ROI target set by the bidding system.'),
+  sl_roi: z.number().describe('The Stop-Loss ROI threshold (protection floor).'),
+  catalog_clicks: z.number().describe('Number of clicks received in this bucket.'),
+  catalog_gmv: z.number().describe('Gross Merchandise Volume generated.'),
+  catalog_bu_perc: z.number().describe('Budget Utilization Percentage (0 to 1 or 0 to 100).'),
+  bu_ideal: z.number().describe('The target Budget Utilization level.'),
+  day_roi: z.number().describe('The ROI achieved for the current day so far.'),
+  spend: z.number().describe('Amount of budget spent.'),
+  alpha: z.number().describe('Alpha (bid multiplier) parameter.'),
 }).catchall(z.any());
 
 export const AnalysisTypeSchema = z
@@ -57,7 +55,7 @@ export const DiagnoseBiddingOutputSchema = z.object({
     .describe('Secondary analysis explaining why the root cause occurred.'),
   evidence: z
     .string()
-    .describe('Evidence from the data supporting the diagnosis.'),
+    .describe('STRICT INSTRUCTION: You MUST use the exact numeric values from the provided JSON (e.g., if Catalog_ROI is 23.8, use 23.8, DO NOT use 0.9). Quote specific timestamps and values to support your claim.'),
   recommendation: z
     .string()
     .describe('Recommended parameter/system change to address the issue.'),

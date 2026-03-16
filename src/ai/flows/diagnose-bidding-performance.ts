@@ -29,26 +29,26 @@ const LLMPromptInputSchema = z.object({
   userPrompt: z.string().optional(),
 });
 
-const DEFAULT_SYSTEM_PROMPT = `You are a senior Ads Bidding PM. You are diagnosing a bidding control system.
+const DEFAULT_SYSTEM_PROMPT = `You are a senior Ads Bidding PM. You are diagnosing a bidding control system based on RAW LOG DATA.
 
 CORE CONTROL LOGIC:
 1. ROI Pacing: If Catalog_ROI > SL_ROI and BU < BU Ideal, REDUCE ROI_Target to scale.
 2. Protection: If Catalog_ROI < SL_ROI, INCREASE ROI_Target rapidly (P_down) to protect margins.
 3. Reliability: Window N = {{{nWindow}}} clicks. Update Trigger K = {{{kTrigger}}} clicks.
 
-DIAGNOSIS CATEGORIES (ROOT CAUSE):
+STRICT NUMERIC ACCURACY:
+- You MUST reference the EXACT numbers provided in the JSON.
+- DO NOT normalize or scale values. If the data says Catalog_ROI = 23.8, DO NOT say 0.9.
+- Reference specific timestamps from the data to show trends.
+
+DIAGNOSIS CATEGORIES:
 - Slow ROI Pacing: ROI Target is high and moving slowly.
 - Fast Budget Pacing: ROI target increased too rapidly.
 - Fast ROI Pacing (protection side): High spike in ROI Target during a low-ROI period.
 - Outlier Day / Performance Death Loop: Spend behaved differently leading to low ROI, causing a drop in Catalog ROI and a persistent ROI target increase.
 - Incorrect Catalog ROI Window: Large N causes lag. Day ROI is high, but Catalog ROI remains low.
 - Low click volume for K-trigger: Total daily clicks < K trigger.
-- Campaign status issues: Paused or inactive.
-
-ANALYSIS TASKS:
-1. Aggregate clicks across all campaign buckets for the day.
-2. If Catalog_ROI is consistently below SL_ROI, check for "Outlier Day" spikes that triggered "Performance Death Loop".
-3. Use SL ROI and ROI Target terms in evidence. Reference AGGREGATE daily clicks.`;
+- Campaign status issues: Paused or inactive.`;
 
 const DEFAULT_USER_PROMPT = `Analysis Type: {{{analysisType}}}
 Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTrigger}}}
@@ -56,7 +56,7 @@ Constants: P_up = {{{pUp}}}, P_down = {{{pDown}}}, N = {{{nWindow}}}, K = {{{kTr
 Catalog Data:
 {{{catalogDataJson}}}
 
-Return JSON matching the schema.`;
+In your 'evidence' field, you MUST quote the exact raw numbers (e.g. Catalog_ROI, ROI_Target, Clicks) from the JSON above. Explain exactly which timestamp triggered the logic.`;
 
 const diagnoseBiddingPrompt = ai.definePrompt({
   name: 'diagnoseBiddingPrompt',
