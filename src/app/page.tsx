@@ -152,9 +152,9 @@ export default function BidBrainPage() {
       }
 
       const catalogIds = Array.from(catalogDataMap.keys());
-      addLog(`Dispatched analysis for ${catalogIds.length} catalogs...`, 'info');
-
       const CONCURRENCY_LIMIT = 3;
+      addLog(`Dispatched analysis for ${catalogIds.length} catalogs (Concurrency: ${CONCURRENCY_LIMIT})...`, 'info');
+
       const queue = [...catalogIds];
       const activeWorkers = new Set();
 
@@ -316,8 +316,10 @@ export default function BidBrainPage() {
 
             <section className="space-y-6">
               {(logs.length > 0 || results.length > 0) ? (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                  <div className="lg:col-span-8 space-y-6">
+                <div className="space-y-8">
+                  <ExecutionLogs logs={logs} isLoading={isLoading} maxHeight="300px" />
+                  
+                  <div className="space-y-6">
                     {isLoading && (
                       <Alert className="bg-primary/5 border-primary/20">
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -343,10 +345,6 @@ export default function BidBrainPage() {
                         </div>
                       )
                     )}
-                  </div>
-                  
-                  <div className="lg:col-span-4 sticky top-24">
-                    <ExecutionLogs logs={logs} isLoading={isLoading} />
                   </div>
                 </div>
               ) : (
