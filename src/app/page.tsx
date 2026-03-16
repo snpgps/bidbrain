@@ -1,31 +1,25 @@
+
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Brain, BarChart3, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Terminal, Settings2, Sparkles } from 'lucide-react';
+import { Brain, BarChart3, AlertCircle, History, Loader2, LogIn, LogOut, User as UserIcon, Settings2, Sparkles } from 'lucide-react';
 import { CsvUploader } from '@/components/bid-brain/csv-uploader';
 import { AnalysisControls } from '@/components/bid-brain/analysis-controls';
 import { ResultsView } from '@/components/bid-brain/results-view';
 import { PromptEditor } from '@/components/bid-brain/prompt-editor';
+import { ExecutionLogs, type LogEntry } from '@/components/bid-brain/execution-logs';
 import { analyzeCatalogAction } from '@/ai/flows/diagnose-bidding-performance';
 import { DiagnoseBiddingOutput } from '@/ai/flows/diagnose-bidding-performance.schema';
 import { Toaster } from '@/components/ui/toaster';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useFirestore, useUser, useStorage, useAuth, useDoc } from '@/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-
-type LogEntry = {
-  timestamp: string;
-  message: string;
-  type: 'info' | 'success' | 'error' | 'warning';
-};
 
 const DEFAULT_SYSTEM_PROMPT = `You are a senior Ads Bidding PM. You are diagnosing a bidding control system.
 
@@ -74,13 +68,9 @@ export default function BidBrainPage() {
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   
-  // Prompt State
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [userPrompt, setUserPrompt] = useState(DEFAULT_USER_PROMPT);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Sync prompts from Firestore
   const promptRef = React.useMemo(() => (db ? doc(db, 'prompts', 'bidding_analysis') : null), [db]);
   const { data: savedPrompt } = useDoc(promptRef);
 
@@ -90,20 +80,6 @@ export default function BidBrainPage() {
       if (savedPrompt.userPrompt) setUserPrompt(savedPrompt.userPrompt);
     }
   }, [savedPrompt]);
-
-  const addLog = (message: string, type: LogEntry['type'] = 'info') => {
-    setLogs(prev => [...prev, {
-      timestamp: new Date().toLocaleTimeString(),
-      message,
-      type
-    }]);
-  };
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
 
   const handleSignIn = async () => {
     if (!auth) return;
@@ -126,6 +102,13 @@ export default function BidBrainPage() {
     setResults([]);
     setError(null);
     setLogs([]);
+
+    const sessionLogs: LogEntry[] = [];
+    const addLog = (message: string, type: LogEntry['type'] = 'info') => {
+      const entry = { timestamp: new Date().toLocaleTimeString(), message, type };
+      sessionLogs.push(entry);
+      setLogs(prev => [...prev, entry]);
+    };
 
     const newSessionId = crypto.randomUUID();
     addLog(`Initialized Engine: ${newSessionId}`, 'info');
@@ -156,7 +139,6 @@ export default function BidBrainPage() {
         userPrompt
       });
 
-      // Group data by Catalog ID
       const catalogDataMap = new Map<string, any[]>();
       for (const row of biddingData) {
         if (!row.catalog_id) continue;
@@ -169,7 +151,6 @@ export default function BidBrainPage() {
       const catalogIds = Array.from(catalogDataMap.keys());
       addLog(`Analyzing ${catalogIds.length} catalogs...`, 'info');
 
-      // Parallel Worker Pool
       const CONCURRENCY_LIMIT = 10;
       const queue = [...catalogIds];
       const activeWorkers = new Set();
@@ -196,7 +177,6 @@ export default function BidBrainPage() {
             if (result) {
               const resultRef = doc(db, 'analysis_sessions', newSessionId, 'results', catalogId);
               setDoc(resultRef, { ...result, timestamp: new Date().toISOString() });
-              
               setResults(prev => [...prev, result]);
               addLog(`Analyzed ${catalogId} [SUCCESS]`, 'success');
             }
@@ -215,12 +195,14 @@ export default function BidBrainPage() {
 
       await Promise.all(workers);
 
-      await setDoc(sessionRef, { status: 'completed' }, { merge: true });
+      await setDoc(sessionRef, { status: 'completed', logs: sessionLogs }, { merge: true });
       addLog(`Session Complete. Results stored.`, 'success');
 
     } catch (err: any) {
       setError(err.message);
       addLog(`FATAL: ${err.message}`, 'error');
+      const sessionRef = doc(db, 'analysis_sessions', newSessionId);
+      await setDoc(sessionRef, { status: 'failed', logs: sessionLogs }, { merge: true });
     } finally {
       setIsLoading(false);
     }
@@ -346,28 +328,7 @@ export default function BidBrainPage() {
                   </div>
                   
                   <div className="lg:col-span-4 sticky top-24">
-                    <Card className="bg-slate-950 border-slate-800 shadow-xl overflow-hidden">
-                      <div className="bg-slate-900 px-4 py-2 border-b border-slate-800 flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Terminal className="w-3 h-3 text-emerald-400" />
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Execution Logs</span>
-                        </div>
-                        {isLoading && <span className="text-[10px] text-emerald-500 animate-pulse font-mono">RUNNING</span>}
-                      </div>
-                      <ScrollArea className="h-[600px] p-4 font-code text-[11px]">
-                        <div className="space-y-1.5">
-                          {logs.map((log, i) => (
-                            <div key={i} className="flex space-x-3">
-                              <span className="text-slate-500 whitespace-nowrap">{log.timestamp}</span>
-                              <span className={log.type === 'success' ? 'text-emerald-400' : log.type === 'error' ? 'text-rose-400' : 'text-slate-300'}>
-                                {log.message}
-                              </span>
-                            </div>
-                          ))}
-                          <div ref={scrollRef} />
-                        </div>
-                      </ScrollArea>
-                    </Card>
+                    <ExecutionLogs logs={logs} isLoading={isLoading} />
                   </div>
                 </div>
               ) : (

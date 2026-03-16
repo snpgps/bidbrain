@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect, useState } from 'react';
@@ -5,9 +6,10 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useFirestore, useDoc, useCollection } from '@/firebase';
 import { doc, collection } from 'firebase/firestore';
-import { Brain, ArrowLeft, Loader2, Calendar, FileText, BarChart3, Clock, AlertCircle } from 'lucide-react';
+import { Brain, ArrowLeft, Loader2, Calendar, FileText, Clock, AlertCircle, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResultsView } from '@/components/bid-brain/results-view';
+import { ExecutionLogs } from '@/components/bid-brain/execution-logs';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Toaster } from '@/components/ui/toaster';
@@ -92,7 +94,7 @@ export default function SessionDetailPage() {
                 <h2 className="text-3xl font-bold font-headline text-foreground tracking-tight">
                   {session?.fileName}
                 </h2>
-                <Badge variant={session?.status === 'completed' ? 'default' : 'outline'} className="capitalize">
+                <Badge variant={session?.status === 'completed' ? 'default' : session?.status === 'failed' ? 'destructive' : 'outline'} className="capitalize">
                   {session?.status}
                 </Badge>
               </div>
@@ -135,7 +137,7 @@ export default function SessionDetailPage() {
           </div>
         </section>
 
-        <section className="space-y-6">
+        <section className="space-y-12">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-20 space-y-4 bg-card rounded-2xl border border-border shadow-sm">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -145,11 +147,29 @@ export default function SessionDetailPage() {
               </div>
             </div>
           ) : (
-            <ResultsView 
-              results={results as any} 
-              analysisType={session?.analysisType} 
-              originalData={originalData}
-            />
+            <>
+              <div className="space-y-6">
+                <ResultsView 
+                  results={results as any} 
+                  analysisType={session?.analysisType} 
+                  originalData={originalData}
+                />
+              </div>
+
+              {session?.logs && session.logs.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center space-x-2 text-xl font-bold font-headline">
+                    <Terminal className="w-6 h-6 text-primary" />
+                    <h3>Diagnostic Logs</h3>
+                  </div>
+                  <ExecutionLogs 
+                    logs={session.logs} 
+                    maxHeight="400px" 
+                    className="shadow-md"
+                  />
+                </div>
+              )}
+            </>
           )}
         </section>
       </main>

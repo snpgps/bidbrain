@@ -13,7 +13,22 @@
         "fileUrl": { "type": "string" },
         "analysisType": { "type": "string" },
         "systemPrompt": { "type": "string" },
-        "userPrompt": { "type": "string" }
+        "userPrompt": { "type": "string" },
+        "pUp": { "type": "number" },
+        "pDown": { "type": "number" },
+        "nWindow": { "type": "number" },
+        "kTrigger": { "type": "number" },
+        "logs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "string" },
+              "message": { "type": "string" },
+              "type": { "type": "string", "enum": ["info", "success", "error", "warning"] }
+            }
+          }
+        }
       },
       "required": ["id", "fileName", "status", "createdAt"]
     },
