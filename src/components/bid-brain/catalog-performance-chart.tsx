@@ -4,6 +4,7 @@ import React from 'react';
 import {
   Line,
   Area,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -79,7 +80,14 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
             <ChartTooltip content={<ChartTooltipContent />} />
             <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
             
-            {/* Areas and Bars on Right Axis */}
+            {/* Volume data on Right Axis */}
+            <Bar
+              yAxisId="right"
+              dataKey="catalog_clicks"
+              fill="var(--color-catalog_clicks)"
+              radius={[2, 2, 0, 0]}
+              opacity={0.6}
+            />
             <Area
               yAxisId="right"
               type="monotone"
@@ -90,7 +98,7 @@ export function CatalogPerformanceChart({ data }: CatalogPerformanceChartProps) 
               strokeWidth={1}
             />
             
-            {/* Lines on Left Axis */}
+            {/* Logic lines on Left Axis */}
             <Line
               yAxisId="left"
               type="stepAfter"
